@@ -86,7 +86,7 @@ export function Sidebar({
       </div>
 
       <NavButton
-        active={activeFilter.type === "all"}
+        active={activeFilter.type === "favorites"}
         icon={<Star size={16} />}
         label="常用"
         onClick={() => onSelect({ type: "favorites" })}

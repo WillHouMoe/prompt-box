@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react"
-import { Copy, Check, RotateCcw, Play } from "lucide-react"
+import { Copy, Check, RotateCcw } from "lucide-react"
 import type { Prompt } from "@/types"
 import { extractVariables, renderPrompt } from "@/lib/variables"
 import { Modal } from "./ui/Modal"
@@ -47,7 +47,7 @@ export function UseModal({ open, onClose, prompt, onMarkUsed }: UseModalProps) {
   }
 
   return (
-    <Modal open={open} onClose={onClose} title={prompt.title} size="lg">
+    <Modal open={open} onClose={onClose} title={prompt.title} size="xl">
       <div className="grid grid-cols-1 gap-0 lg:grid-cols-2">
         {/* Left: fill variables */}
         <div className="border-slate-200 p-5 lg:border-r">
@@ -88,11 +88,10 @@ export function UseModal({ open, onClose, prompt, onMarkUsed }: UseModalProps) {
               disabled={finalPrompt.length === 0}
               className="min-w-28"
             >
-              <Play size={14} />
               {copied ? (
                 <>
                   <Check size={14} />
-                  ✓ 已复制
+                  已复制
                 </>
               ) : (
                 <>
