@@ -14,6 +14,7 @@ import {
   RotateCcw,
 } from "lucide-react"
 import type { ChatMessage, PromptDraft, PromptTarget } from "@/types"
+import { mergeEdits, type PromptEdit } from "@/lib/diffEdits"
 import {
   askAssistant,
   DEEPSEEK_MODEL_LABEL,
@@ -34,8 +35,50 @@ interface PanelMessage {
   role: "user" | "assistant"
   content: string
   draft?: PromptDraft
-  /** 输出被截断：草稿可能不完整，不允许直接覆盖表单。 */
+  /** 差分模式返回的改动片段。 */
+  edits?: PromptEdit[]
+  /** 输出被截断：内容可能不完整，不允许直接覆盖表单。 */
   truncated?: boolean
+}
+
+/** 超过这个长度就默认用差分模式，避免让 AI 重写全文。 */
+const DIFF_MODE_THRESHOLD = 600
+
+/** 把改动片段渲染成红删 / 绿增的 diff 块。 */
+function EditDiff({ edits, content }: { edits: PromptEdit[]; content: string }) {
+  const { outcomes } = mergeEdits(content, edits)
+  return (
+    <div className="mt-2 space-y-1.5">
+      {edits.map((edit, index) => {
+        const status = outcomes[index]?.status ?? "not-found"
+        return (
+          <div key={index} className="overflow-hidden rounded-md border border-slate-200">
+            <div className="max-h-24 overflow-y-auto whitespace-pre-wrap break-words bg-rose-50/70 px-2 py-1 font-mono text-[11px] leading-relaxed text-rose-700">
+              {edit.find ? `- ${edit.find}` : "- （追加到正文末尾）"}
+            </div>
+            <div className="max-h-24 overflow-y-auto whitespace-pre-wrap break-words bg-emerald-50/70 px-2 py-1 font-mono text-[11px] leading-relaxed text-emerald-800">
+              {edit.replace ? `+ ${edit.replace}` : "+ （删除这段）"}
+            </div>
+            {status !== "applied" ? (
+              <p className="bg-amber-50 px-2 py-1 text-[11px] text-amber-700">
+                {status === "ambiguous"
+                  ? "⚠️ 这段文字在正文里出现了多次，无法确定改哪一处，已跳过"
+                  : status === "overlap"
+                    ? "⚠️ 与上一处修改重叠，已跳过"
+                    : "⚠️ 没能在正文中定位到这段原文，已跳过"}
+              </p>
+            ) : null}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+function diffToText(edits: PromptEdit[]): string {
+  return edits
+    .map((e) => `- ${e.find || "（末尾）"}\n+ ${e.replace || "（删除）"}`)
+    .join("\n\n")
 }
 
 interface AiAssistantProps {
@@ -52,6 +95,7 @@ interface AiAssistantProps {
   onApplyContent: (text: string) => void
   onAppendContent: (text: string) => void
   onApplyDraft: (draft: PromptDraft) => void
+  onApplyEdits: (edits: PromptEdit[]) => void
   onOpenSettings: () => void
   onSaveKey: (key: string) => void
 }
@@ -92,6 +136,7 @@ export function AiAssistant({
   onApplyContent,
   onAppendContent,
   onApplyDraft,
+  onApplyEdits,
   onOpenSettings,
   onSaveKey,
 }: AiAssistantProps) {
@@ -101,6 +146,10 @@ export function AiAssistant({
   const [error, setError] = useState("")
   const [keyDraft, setKeyDraft] = useState("")
   const [lastSent, setLastSent] = useState("")
+  // 长内容默认走差分模式：只让 AI 返回改动片段，更快也更不容易被截断。
+  const [mode, setMode] = useState<"full" | "diff">(() =>
+    content.trim().length >= DIFF_MODE_THRESHOLD ? "diff" : "full",
+  )
   const { copy } = useClipboard()
   const listRef = useRef<HTMLDivElement>(null)
 
@@ -128,7 +177,7 @@ export function AiAssistant({
     setError("")
     setLoading(true)
     try {
-      const { reply, draft, truncated } = await askAssistant({
+      const { reply, draft, edits, truncated } = await askAssistant({
         apiKey,
         model,
         baseUrl,
@@ -142,10 +191,11 @@ export function AiAssistant({
           categoryNames,
         },
         messages: history,
+        mode,
       })
       setMessages((prev) => [
         ...prev,
-        { id: nextId(), role: "assistant", content: reply, draft, truncated },
+        { id: nextId(), role: "assistant", content: reply, draft, edits, truncated },
       ])
     } catch (err) {
       setError(err instanceof DeepSeekError ? err.message : "请求失败，请稍后重试")
@@ -282,6 +332,7 @@ export function AiAssistant({
               className="rounded-2xl rounded-bl-sm border border-slate-200 bg-white px-3 py-2"
             >
               <MarkdownView content={m.content} />
+              {m.edits && m.edits.length > 0 ? <EditDiff edits={m.edits} content={content} /> : null}
               {m.draft && !m.truncated && (
                 <p className="mt-2 flex items-start gap-1 text-[11px] leading-relaxed text-slate-400">
                   <Wand2 size={12} className="mt-0.5 shrink-0" />
@@ -289,7 +340,41 @@ export function AiAssistant({
                 </p>
               )}
               <div className="mt-2 flex flex-wrap items-center gap-1.5 border-t border-slate-100 pt-2">
-                {m.truncated ? (
+                {m.edits && m.edits.length > 0 ? (
+                  (() => {
+                    const preview = mergeEdits(content, m.edits)
+                    return (
+                      <>
+                        <button
+                          onClick={() => onApplyEdits(m.edits as PromptEdit[])}
+                          disabled={preview.applied === 0}
+                          className="focus-ring inline-flex items-center gap-1 rounded-md bg-indigo-50 px-2 py-1 text-[11px] font-medium text-indigo-700 hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          <CornerDownLeft size={12} />
+                          {preview.failed === 0
+                            ? `应用 ${preview.applied} 处修改`
+                            : `应用 ${preview.applied} 处（${preview.failed} 处跳过）`}
+                        </button>
+                        <button
+                          onClick={() => copy(diffToText(m.edits as PromptEdit[]))}
+                          className="focus-ring inline-flex items-center gap-1 rounded-md border border-slate-200 px-2 py-1 text-[11px] font-medium text-slate-600 hover:bg-slate-50"
+                        >
+                          <Copy size={12} />
+                          复制差异
+                        </button>
+                        {lastSent ? (
+                          <button
+                            onClick={() => send(lastSent)}
+                            className="focus-ring inline-flex items-center gap-1 rounded-md border border-slate-200 px-2 py-1 text-[11px] font-medium text-slate-600 hover:bg-slate-50"
+                          >
+                            <RotateCcw size={12} />
+                            重新生成
+                          </button>
+                        ) : null}
+                      </>
+                    )
+                  })()
+                ) : m.truncated ? (
                   <>
                     <span className="inline-flex items-center gap-1 rounded-md bg-amber-50 px-2 py-1 text-[11px] font-medium text-amber-700">
                       <AlertTriangle size={12} />
@@ -367,6 +452,37 @@ export function AiAssistant({
       </div>
 
       <div className="border-t border-slate-100 p-3">
+        <div className="mb-2 flex flex-wrap items-center gap-1.5">
+          <span className="text-[11px] text-slate-400">修改方式</span>
+          <div className="inline-flex overflow-hidden rounded-md border border-slate-200">
+            {(
+              [
+                { value: "diff", label: "差分", hint: "只返回改动片段，长 Prompt 更快更稳" },
+                { value: "full", label: "全文", hint: "让 AI 返回完整正文" },
+              ] as const
+            ).map((opt) => (
+              <button
+                key={opt.value}
+                type="button"
+                aria-pressed={mode === opt.value}
+                onClick={() => setMode(opt.value)}
+                className={cn(
+                  "focus-ring px-2 py-0.5 text-[11px] font-medium transition-colors",
+                  mode === opt.value
+                    ? "bg-indigo-50 text-indigo-700"
+                    : "text-slate-500 hover:bg-slate-50",
+                )}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+          <span className="text-[11px] text-slate-400">
+            {mode === "diff"
+              ? "AI 只给出改动片段，确认后合并进正文"
+              : "AI 返回完整正文后覆盖表单"}
+          </span>
+        </div>
         <div className="flex items-end gap-2">
           <Textarea
             rows={2}

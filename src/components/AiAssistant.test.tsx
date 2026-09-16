@@ -15,6 +15,7 @@ function setup(overrides: Partial<Parameters<typeof AiAssistant>[0]> = {}) {
   const onApplyContent = vi.fn()
   const onAppendContent = vi.fn()
   const onApplyDraft = vi.fn()
+  const onApplyEdits = vi.fn()
   const onOpenSettings = vi.fn()
   const onSaveKey = vi.fn()
   render(
@@ -31,12 +32,13 @@ function setup(overrides: Partial<Parameters<typeof AiAssistant>[0]> = {}) {
       onApplyContent={onApplyContent}
       onAppendContent={onAppendContent}
       onApplyDraft={onApplyDraft}
+      onApplyEdits={onApplyEdits}
       onOpenSettings={onOpenSettings}
       onSaveKey={onSaveKey}
       {...overrides}
     />,
   )
-  return { onApplyContent, onAppendContent, onApplyDraft, onOpenSettings, onSaveKey }
+  return { onApplyContent, onAppendContent, onApplyDraft, onApplyEdits, onOpenSettings, onSaveKey }
 }
 
 function stubReply(content: string, finishReason = "stop") {
@@ -158,6 +160,53 @@ describe("AiAssistant", () => {
     await userEvent.click(await screen.findByRole("button", { name: /只填入内容/ }))
     expect(onApplyContent).toHaveBeenCalledWith("你好 Prompt")
     expect(screen.queryByRole("button", { name: /应用到表单/ })).toBeNull()
+  })
+
+  it("defaults to diff mode for long prompts and merges the edits", async () => {
+    const longContent = "# 任务\n\n" + "正文内容。".repeat(150) + "\n最后一行特殊内容"
+    stubReply(
+      JSON.stringify({
+        reply: "我把要求改成三条了",
+        edits: [{ find: "最后一行特殊内容", replace: "改过的最后一行" }],
+      }),
+    )
+    const { onApplyEdits } = setup({ content: longContent })
+    // the mode toggle should already be on 差分
+    expect(screen.getByRole("button", { name: "差分" })).toHaveAttribute("aria-pressed", "true")
+    await userEvent.type(screen.getByPlaceholderText(/描述你想写的 Prompt/), "改成三条要求")
+    await userEvent.click(screen.getByRole("button", { name: /发送/ }))
+    await userEvent.click(await screen.findByRole("button", { name: /应用 1 处修改/ }))
+    expect(onApplyEdits).toHaveBeenCalledWith([
+      { find: "最后一行特殊内容", replace: "改过的最后一行" },
+    ])
+  })
+
+  it("renders the diff before applying", async () => {
+    stubReply(
+      JSON.stringify({
+        reply: "改好了",
+        edits: [{ find: "保留原意。", replace: "保留原意，并修正语法。" }],
+      }),
+    )
+    setup({ content: "第一段内容。\n保留原意。\n第三段内容。" + "正文内容。".repeat(60) })
+    await userEvent.type(screen.getByPlaceholderText(/描述你想写的 Prompt/), "改一下")
+    await userEvent.click(screen.getByRole("button", { name: /发送/ }))
+    expect(await screen.findByText(/- 保留原意。/)).toBeInTheDocument()
+    expect(screen.getByText(/\+ 保留原意，并修正语法。/)).toBeInTheDocument()
+  })
+
+  it("warns when an edit cannot be located", async () => {
+    stubReply(
+      JSON.stringify({
+        reply: "改好了",
+        edits: [{ find: "原文里没有这句话", replace: "x" }],
+      }),
+    )
+    setup({ content: "正文内容。".repeat(100) })
+    await userEvent.type(screen.getByPlaceholderText(/描述你想写的 Prompt/), "改一下")
+    await userEvent.click(screen.getByRole("button", { name: /发送/ }))
+    expect(await screen.findByText(/没能在正文中定位/)).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: /应用 0 处/ })).toBeDisabled()
   })
 
   it("surfaces an error when the request fails", async () => {

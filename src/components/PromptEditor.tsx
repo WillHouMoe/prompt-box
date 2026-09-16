@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from "react"
 import { Star, Save, MessageSquare, Terminal } from "lucide-react"
 import type { AppSettings, Category, Prompt, PromptDraft, PromptInput, PromptTarget } from "@/types"
 import { extractVariables } from "@/lib/variables"
+import { mergeEdits, type PromptEdit } from "@/lib/diffEdits"
+import { useToast } from "@/hooks/useToast"
 import { effectiveTarget } from "@/lib/targets"
 import { cn } from "@/lib/utils"
 import { Modal } from "./ui/Modal"
@@ -59,7 +61,19 @@ export function PromptEditor({
     setNewCategory("")
   }, [open, prompt])
 
+  const { toast } = useToast()
   const variables = useMemo(() => extractVariables(content), [content])
+
+  /** 差分模式：把 AI 给出的改动片段合并进当前正文。 */
+  const applyEdits = (edits: PromptEdit[]) => {
+    const { content: merged, applied, failed } = mergeEdits(content, edits)
+    if (applied === 0) {
+      toast("没能定位到要修改的原文，请让 AI 重新生成", "error")
+      return
+    }
+    setContent(merged)
+    toast(failed > 0 ? `已应用 ${applied} 处修改，${failed} 处未匹配` : `已应用 ${applied} 处修改`)
+  }
 
   const tagList = useMemo(
     () =>
@@ -275,6 +289,7 @@ export function PromptEditor({
               setContent((prev) => (prev.trim() ? `${prev.trimEnd()}\n\n${text}` : text))
             }
             onApplyDraft={applyDraft}
+            onApplyEdits={applyEdits}
             onOpenSettings={onOpenSettings}
             onSaveKey={(key) => onUpdateSettings({ deepseekApiKey: key })}
           />

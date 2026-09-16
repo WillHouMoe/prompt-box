@@ -1,4 +1,5 @@
 import type { ChatMessage, PromptDraft } from "@/types"
+import { parseEdits, type PromptEdit } from "./diffEdits"
 
 /**
  * DeepSeek 的 OpenAI 兼容接口地址。
@@ -80,7 +81,12 @@ export interface AssistantContext {
  * 3. 明确内容规则：{{变量}} 占位符、正文不套代码块、不寒暄、不省略。
  * 4. 带上当前编辑中的 Prompt 上下文，让 AI 在用户已有内容上改，而不是从零瞎写。
  */
-export function buildSystemPrompt(context: AssistantContext = {}): string {
+export type AssistantMode = "full" | "diff"
+
+export function buildSystemPrompt(
+  context: AssistantContext = {},
+  mode: AssistantMode = "full",
+): string {
   const categories =
     context.categoryNames && context.categoryNames.length > 0
       ? context.categoryNames.join(" / ")
@@ -110,6 +116,43 @@ export function buildSystemPrompt(context: AssistantContext = {}): string {
     "- 严禁用省略写法偷懒，例如“…（其余内容不变）”、“（此处省略）”、“以此类推”、“（同上）”、只写改动部分、只写标题骨架。",
     "- 如果正文很长，就写长一点，不要为了简短而牺牲完整性。content 是给程序读取的字段，长度不是问题。",
     "- 同时 reply 必须非常简短（1-2 句）：它只用来告诉用户你改了什么。不要把正文内容塞进 reply。",
+  ]
+
+  if (mode === "diff") {
+    lines.push(
+      "",
+      "## 输出格式（差分模式）",
+      "用户正在编辑一份已经很长的 Prompt。**不要输出完整正文**，只输出需要改动的地方，由程序合并回原文。",
+      "只输出一个 JSON 对象，不要输出任何其他文字，也不要包在代码块里：",
+      "{",
+      '  "reply": "用 1-2 句中文说明你改了什么",',
+      '  "edits": [',
+      '    { "find": "需要被替换的原文（从下面「当前内容」里逐字复制）", "replace": "替换后的新文字" }',
+      "  ]",
+      "}",
+      "",
+      "edits 的硬性规则：",
+      "1. find 必须是从「当前内容」中**逐字复制**的原文片段：不得改写、不得改标点、不得用省略号、不得凭记忆改写顺序。程序靠它来定位，找不到就改不了。",
+      "2. find 必须足够长以保证**唯一**：连同前后文一起复制（一般 1-3 行），否则程序无法确定改哪里。",
+      "3. replace 只写这一段的新版本，不要包含整篇正文，也不要重复 find 之外的内容。",
+      "4. 删除内容就把 replace 设为空字符串；新增内容就把附近的原文一起放进 find，再在 replace 里写出合并后的结果。",
+      "5. 如果要在整篇末尾追加内容，把 find 设为空字符串、replace 设为要追加的正文。",
+      "6. 只改用户要求的地方，不要顺手重写其他地方；改动条数尽量少。",
+      "7. 如果用户只是在提问、不需要改正文，edits 返回空数组 []。",
+      "",
+      "另外：reply 里不要粘贴正文，只写 1-2 句说明。",
+    )
+    const current: string[] = []
+    if (context.title?.trim()) current.push(`标题：${context.title.trim()}`)
+    if (context.category?.trim()) current.push(`分类：${context.category.trim()}`)
+    if (context.target?.trim()) current.push(`类型：${context.target.trim()}`)
+    if (context.tags && context.tags.length > 0) current.push(`标签：${context.tags.join("、")}`)
+    if (context.content?.trim()) current.push("", "当前内容（find 必须逐字来自这里）：", context.content.trim())
+    if (current.length > 0) lines.push("", "## 用户当前正在编辑的 Prompt", ...current)
+    return lines.join("\n")
+  }
+
+  lines.push(
     "",
     "## 输出格式",
     "只输出一个 JSON 对象，不要输出任何其他文字，也不要包在代码块里。先把 reply 写在最前面，json 结构如下：",
@@ -124,7 +167,7 @@ export function buildSystemPrompt(context: AssistantContext = {}): string {
     "  }",
     "}",
     "如果用户只是在提问、或不需要生成/修改 Prompt，把 draft 设为 null，只在 reply 里回答。",
-  ]
+  )
 
   const current: string[] = []
   if (context.title?.trim()) current.push(`标题：${context.title.trim()}`)
@@ -419,7 +462,19 @@ export function readJsonStringArray(text: string, key: string): string[] | undef
 }
 
 function looksLikeDraftJson(text: string): boolean {
-  return /^\s*\{[\s\S]*"(reply|draft|content)"\s*:/.test(text)
+  return /^\s*\{[\s\S]*"(reply|draft|content|edits)"\s*:/.test(text)
+}
+
+/** 模型没写 reply 时给一句兜底说明。 */
+function describeReply(
+  draft: PromptDraft | undefined,
+  edits: PromptEdit[] | undefined,
+  truncated: boolean,
+): string {
+  if (truncated) return "输出被截断了，下面是已经生成的部分。"
+  if (edits && edits.length > 0) return `已经给出 ${edits.length} 处修改，确认后即可应用。`
+  if (draft) return "已经帮你写好草稿了，直接点「应用到表单」即可。"
+  return "已经处理完成。"
 }
 
 /** 被截断时尽力还原 draft。 */
@@ -453,9 +508,11 @@ export function parsePromptDraft(raw: string): PromptDraft | undefined {
 export interface AssistantReply {
   /** 展示在对话气泡里的说明文字。 */
   reply: string
-  /** AI 生成的 Prompt 草稿，可直接应用到表单。 */
+  /** 全文模式下 AI 生成的完整草稿。 */
   draft?: PromptDraft
-  /** 输出被截断：草稿可能不完整（"length"）。 */
+  /** 差分模式下 AI 给出的改动片段。 */
+  edits?: PromptEdit[]
+  /** 输出被截断：内容可能不完整（"length"）。 */
   truncated?: boolean
 }
 
@@ -484,11 +541,16 @@ export function parseAssistantReply(
     const record = asRecord(JSON.parse(json))
     if (record) {
       const reply = cleanString(record.reply, 2000)
-      const draft = normalizeDraft(record.draft ?? (record.content ? record : undefined))
-      if (reply || draft) {
+      // 兼容 {reply, draft} 与直接返回草稿本身的两种形态。
+      const draft = normalizeDraft(
+        record.draft ?? (typeof record.content === "string" ? record : undefined),
+      )
+      const edits = parseEdits(record.edits)
+      if (reply || draft || edits.length > 0) {
         return {
-          reply: reply || "已经帮你写好草稿了，直接点「应用到表单」即可。",
+          reply: reply || describeReply(draft, edits, truncated),
           draft,
+          edits: edits.length > 0 ? edits : undefined,
           truncated,
         }
       }
@@ -501,9 +563,7 @@ export function parseAssistantReply(
   const draft = salvagePromptDraft(text)
   if (reply || draft) {
     return {
-      reply:
-        reply ||
-        (truncated ? "输出被截断了，下面是已经生成的部分。" : "已经帮你写好草稿了。"),
+      reply: reply || describeReply(draft, undefined, truncated),
       draft,
       truncated,
     }
@@ -525,6 +585,8 @@ export interface AskOptions {
   context?: AssistantContext
   messages: ChatMessage[]
   signal?: AbortSignal
+  /** full = 返回完整正文；diff = 只返回改动片段（编辑长 Prompt 用）。 */
+  mode?: AssistantMode
 }
 
 /**
@@ -542,9 +604,10 @@ export async function askAssistant({
   context,
   messages,
   signal,
+  mode = "full",
 }: AskOptions): Promise<AssistantReply> {
   const payload: ChatMessage[] = [
-    { role: "system", content: buildSystemPrompt(context) },
+    { role: "system", content: buildSystemPrompt(context, mode) },
     ...messages,
   ]
 

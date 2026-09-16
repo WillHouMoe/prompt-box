@@ -122,6 +122,20 @@ describe("buildSystemPrompt", () => {
   it("falls back to the built-in category list", () => {
     expect(buildSystemPrompt({})).toContain("写作")
   })
+
+  it("describes the diff contract in diff mode", () => {
+    const s = buildSystemPrompt({ content: "原文内容" }, "diff")
+    expect(s).toContain('"edits"')
+    expect(s).toContain("逐字复制")
+    expect(s).toContain("不要输出完整正文")
+    expect(s).toContain("原文内容")
+    // 全文模式的字段不应出现
+    expect(s).not.toContain('"draft"')
+  })
+
+  it("does not ask for edits in full mode", () => {
+    expect(buildSystemPrompt({}, "full")).not.toContain("差分模式")
+  })
 })
 
 describe("normalizeDraft", () => {
