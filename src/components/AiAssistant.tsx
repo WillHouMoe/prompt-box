@@ -51,6 +51,7 @@ function EditDiff({ edits, content }: { edits: PromptEdit[]; content: string }) 
     <div className="mt-2 space-y-1.5">
       {edits.map((edit, index) => {
         const status = outcomes[index]?.status ?? "not-found"
+        const match = outcomes[index]?.match ?? "none"
         return (
           <div key={index} className="overflow-hidden rounded-md border border-slate-200">
             <div className="max-h-24 overflow-y-auto whitespace-pre-wrap break-words bg-rose-50/70 px-2 py-1 font-mono text-[11px] leading-relaxed text-rose-700">
@@ -65,7 +66,11 @@ function EditDiff({ edits, content }: { edits: PromptEdit[]; content: string }) 
                   ? "⚠️ 这段文字在正文里出现了多次，无法确定改哪一处，已跳过"
                   : status === "overlap"
                     ? "⚠️ 与上一处修改重叠，已跳过"
-                    : "⚠️ 没能在正文中定位到这段原文，已跳过"}
+                    : "⚠️ 正文里找不到这一段（AI 抄写时可能改动了文字），已跳过"}
+              </p>
+            ) : match === "fuzzy" ? (
+              <p className="bg-slate-50 px-2 py-1 text-[11px] text-slate-500">
+                原文的标点 / 空行 / Markdown 记号与 AI 抄写略有出入，已按最接近的一段合并
               </p>
             ) : null}
           </div>
@@ -73,6 +78,20 @@ function EditDiff({ edits, content }: { edits: PromptEdit[]; content: string }) 
       })}
     </div>
   )
+}
+
+/** AI 给出的 find 和正文对不上时，把这几处列出来让它重做。 */
+function buildRetryPrompt(unmatched: PromptEdit[]): string {
+  const list = unmatched.map((edit, index) => `${index + 1}. ${JSON.stringify(edit.find)}`).join("\n")
+  return [
+    `下面 ${unmatched.length} 处改动没能和正文对上，find 不是正文里逐字存在的一段：`,
+    list,
+    "",
+    "请只针对这几处重新给出 edits。要求：",
+    "1. find 必须从正文里逐字复制，标点、空格、Markdown 记号都要一致；",
+    "2. find 要短且唯一（一到两行为宜），能唯一定位就行；",
+    "3. 如果这几处其实不需要改动，就返回空的 edits 数组并在 reply 里说明。",
+  ].join("\n")
 }
 
 function diffToText(edits: PromptEdit[]): string {
@@ -362,6 +381,23 @@ export function AiAssistant({
                           <Copy size={12} />
                           复制差异
                         </button>
+                        {preview.failed > 0 ? (
+                          <button
+                            onClick={() =>
+                              send(
+                                buildRetryPrompt(
+                                  preview.outcomes
+                                    .filter((o) => o.status !== "applied")
+                                    .map((o) => o.edit),
+                                ),
+                              )
+                            }
+                            className="focus-ring inline-flex items-center gap-1 rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-[11px] font-medium text-amber-700 hover:bg-amber-100"
+                          >
+                            <RotateCcw size={12} />
+                            重试未匹配的 {preview.failed} 处
+                          </button>
+                        ) : null}
                         {lastSent ? (
                           <button
                             onClick={() => send(lastSent)}

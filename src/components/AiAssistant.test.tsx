@@ -205,8 +205,42 @@ describe("AiAssistant", () => {
     setup({ content: "正文内容。".repeat(100) })
     await userEvent.type(screen.getByPlaceholderText(/描述你想写的 Prompt/), "改一下")
     await userEvent.click(screen.getByRole("button", { name: /发送/ }))
-    expect(await screen.findByText(/没能在正文中定位/)).toBeInTheDocument()
+    expect(await screen.findByText(/正文里找不到这一段/)).toBeInTheDocument()
     expect(screen.getByRole("button", { name: /应用 0 处/ })).toBeDisabled()
+  })
+
+  it("offers to retry the edits that could not be located", async () => {
+    stubReply(
+      JSON.stringify({
+        reply: "改好了",
+        edits: [
+          { find: "唯一的最后一行", replace: "改过的内容" },
+          { find: "原文里没有这句话", replace: "x" },
+        ],
+      }),
+    )
+    setup({ content: "正文内容。".repeat(100) + "\n唯一的最后一行" })
+    await userEvent.type(screen.getByPlaceholderText(/描述你想写的 Prompt/), "改一下")
+    await userEvent.click(screen.getByRole("button", { name: /发送/ }))
+    await userEvent.click(await screen.findByRole("button", { name: /重试未匹配的 1 处/ }))
+    // 重试会把失败的那条 find 原样发回给模型，而不是笼统地重来
+    const retry = vi.mocked(fetch).mock.calls.at(-1)?.[1] as RequestInit
+    expect(String(retry.body)).toContain("原文里没有这句话")
+    expect(String(retry.body)).not.toContain("改过的内容")
+  })
+
+  it("tells the user when a merge had to fall back to a near match", async () => {
+    stubReply(
+      JSON.stringify({
+        reply: "改好了",
+        edits: [{ find: "正文内容，保留原意。", replace: "正文内容，保留原意，并修正语法。" }],
+      }),
+    )
+    setup({ content: "第一行\n正文内容：保留原意。\n" + "补白。".repeat(80) })
+    await userEvent.type(screen.getByPlaceholderText(/描述你想写的 Prompt/), "改一下")
+    await userEvent.click(screen.getByRole("button", { name: /发送/ }))
+    expect(await screen.findByText(/已按最接近的一段合并/)).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: /应用 1 处修改/ })).toBeEnabled()
   })
 
   it("surfaces an error when the request fails", async () => {

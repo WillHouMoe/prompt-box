@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { locateEdit, mergeEdits, parseEdits } from "./diffEdits"
+import { locateEdit, locateFind, mergeEdits, parseEdits } from "./diffEdits"
 
 describe("locateEdit", () => {
   it("finds a unique snippet", () => {
@@ -18,6 +18,91 @@ describe("locateEdit", () => {
   it("tolerates whitespace differences", () => {
     expect(locateEdit("第一段\n\n\n第二段", "第一段\n第二段")).toBe("ok")
     expect(locateEdit("  缩进两格\n下一行", "缩进两格\n下一行")).toBe("ok")
+  })
+})
+
+describe("locateFind: AI 抄写漂移时的模糊定位", () => {
+  const DOC = `## 四、例句与语料规则
+
+如果原文中有体现该义项的句子：
+
+**必须保留原文例句。**
+
+同时补充：
+
+* 常见现代汉语词语；
+* 成语；
+
+判定标准（必须同时满足，缺一不可）：
+`
+
+  it("标点被改写也能定位（，→：）", () => {
+    const found = locateFind(DOC, "如果原文中有体现该义项的句子，必须保留原文例句。")
+    expect(found.status).toBe("ok")
+    expect(found.match).toBe("fuzzy")
+  })
+
+  it("列表符号被改写也能定位（* → -）", () => {
+    const found = locateFind(DOC, "- 常见现代汉语词语；")
+    expect(found.status).toBe("ok")
+  })
+
+  it("全角/半角标点差异也能定位", () => {
+    const found = locateFind(DOC, "判定标准(必须同时满足,缺一不可):")
+    expect(found.status).toBe("ok")
+  })
+
+  it("多一点少一点措辞也能定位", () => {
+    const found = locateFind(DOC, "判定标准（必须同时满足，缺一不可）：")
+    expect(found.status).toBe("ok")
+    expect(locateFind(DOC, "判定标准必须同时满足缺一不可").status).toBe("ok")
+  })
+
+  it("模糊匹配不会把不相干的句子硬套上去", () => {
+    expect(locateFind(DOC, "这句话在原文里根本不存在").status).toBe("not-found")
+    expect(locateFind(DOC, "请把这段话改写得更口语一些").status).toBe("not-found")
+    expect(locateFind(DOC, "重要程度排序：高、中、低").status).toBe("not-found")
+  })
+
+  it("正文里出现重复段落时仍然报 ambiguous 而不是乱改", () => {
+    const doc = "同一个字必须合并到同一个词条。\n\n中间内容\n\n同一个字必须合并到同一个词条。"
+    expect(locateFind(doc, "同一个字必须合并到同一个词条。").status).toBe("ambiguous")
+  })
+
+  it("模板里有很多相似行时，靠逐字命中的锚点仍然能定位", () => {
+    const doc = Array.from(
+      { length: 200 },
+      (_, i) => `### 第 ${i} 节\n\n这里是第 ${i} 段正文内容，用来模拟真实的长 Prompt 文本。`,
+    ).join("\n\n")
+    const found = locateFind(doc, "这里是第 42 段正文内容，用来模拟真实的长Prompt文本。")
+    expect(found.status).toBe("ok")
+    expect(doc.slice(found.start, found.end)).toBe("这里是第 42 段正文内容，用来模拟真实的长 Prompt 文本。")
+  })
+
+  it("模糊合并后不会残留重复内容", () => {
+    const out = mergeEdits(DOC, [
+      {
+        find: "如果原文中有体现该义项的句子，必须保留原文例句。",
+        replace:
+          "如果原文中有体现该义项的句子：\n\n**必须保留原文例句。**\n\n而且必须补一条硬性规范。",
+      },
+    ])
+    expect(out.outcomes[0].match).toBe("fuzzy")
+    expect(out.applied).toBe(1)
+    expect(out.content).toContain("而且必须补一条硬性规范。")
+    // 原来那三行应该被整体替换掉，而不是被追加成第二遍
+    expect(out.content.match(/必须保留原文例句/g)).toHaveLength(1)
+  })
+
+  it("定位耗时在长文档里也可接受", () => {
+    const doc = Array.from({ length: 200 }, (_, i) => `### 第 ${i} 节\n\n第 ${i} 段正文。`).join("\n\n")
+    const started = Date.now()
+    const out = mergeEdits(
+      doc,
+      Array.from({ length: 10 }, (_, i) => ({ find: `第 ${i * 3} 段正文。`, replace: `第 ${i * 3} 段正文（改）。` })),
+    )
+    expect(out.applied).toBe(10)
+    expect(Date.now() - started).toBeLessThan(2000)
   })
 })
 
