@@ -18,9 +18,11 @@
 - **一键复制**：复制的是替换变量后的最终 Prompt，而不是模板
 - **搜索**：标题、内容、分类、标签的实时全文搜索
 - **分类**：一级分类，内置「学习 / 编程 / 写作 / 工作 / 生活 / 其他」，也可自定义
+- **Chat / Agent 类型**：给 Prompt 打上「网页 Chat」或「本地 Agent」标签，一键区分与筛选
 - **Tags**：标签点击即可筛选
 - **收藏（常用）**：收藏你最喜欢的 Prompt
 - **最近使用**：根据 `last_used_at` 自动排序
+- **AI 助手（DeepSeek）**：新建 / 编辑 Prompt 时可与 DeepSeek 对话，让 AI 帮你撰写、优化 Prompt，并可一键填入
 - **Import / Export**：导出 `promptbox-backup.json`，可导入恢复
 - **Markdown**：内容与 Preview 支持基础 Markdown 渲染
 - **快捷键**：`⌘K` 打开快速搜索（Command Palette），`N` 新建，`Esc` 关闭
@@ -37,6 +39,7 @@
 - [lucide-react](https://lucide.dev/) 图标
 - [marked](https://marked.js.org/) + [DOMPurify](https://github.com/cure53/DOMPurify)（Markdown 渲染）
 - [Vitest](https://vitest.dev/) + [Testing Library](https://testing-library.com/)（测试）
+- [DeepSeek API](https://platform.deepseek.com/)（可选 AI 助手，OpenAI 兼容接口）
 
 ---
 
@@ -101,12 +104,29 @@ npm test
 ## Data Storage
 
 - 数据保存在浏览器的 **`localStorage`** 中，key 为 `promptbox.data.v1`
-- 结构：`{ prompts, categories }`
+- 结构：`{ prompts, categories }`；设置（DeepSeek API Key / 模型）存于 `promptbox.settings.v1`
 - 首次打开会自动生成少量 Demo Prompt，可随时删除
 - 导出 / 导入可实现跨浏览器备份与恢复
 
 数据访问集中在 `src/storage/`，UI 层通过 `PromptStoreProvider`（React Context）消费，
 不会在组件中到处直接 `localStorage.setItem(...)`。
+
+---
+
+## AI 助手（DeepSeek，可选）
+
+PromptBox 内置一个基于 [DeepSeek](https://platform.deepseek.com/) 的 Prompt 写作助手：
+
+1. 打开右上角 **⚙️ 设置**，填入你自己的 **DeepSeek API Key**（也可在编辑弹窗的 AI 面板里直接填写）
+2. 在 **新建 / 编辑 Prompt** 弹窗右侧，用自然语言描述你想要什么
+3. AI 生成后点击 **填入内容** 或 **追加到内容**，即可写回 Prompt
+
+说明：
+
+- API Key 仅保存在**本机浏览器**（`localStorage`），请求由浏览器直接发往 `api.deepseek.com`，不经过任何第三方服务器
+- 支持 `deepseek-chat`（V3）与 `deepseek-reasoner`（R1）两个模型
+- 如果浏览器对该接口有跨域（CORS）限制，界面会给出明确提示
+- 不填写 API Key 时，PromptBox 的所有其他功能照常可用
 
 ---
 

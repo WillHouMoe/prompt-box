@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { filterPrompts, sortByRecent } from "./search"
+import { filterPrompts, filterByTarget, sortByRecent } from "./search"
 import type { Prompt } from "@/types"
 
 function makePrompt(partial: Partial<Prompt>): Prompt {
@@ -67,5 +67,23 @@ describe("sortByRecent", () => {
       makePrompt({ id: "d", updated_at: 200 }),
     ]
     expect(sortByRecent(prompts).map((p) => p.id)).toEqual(["c", "b", "d", "a"])
+  })
+})
+
+describe("target filter and search", () => {
+  const prompts = [
+    makePrompt({ id: "c", title: "网页提示", target: "chat" }),
+    makePrompt({ id: "a", title: "本地提示", target: "agent" }),
+    makePrompt({ id: "u", title: "未指定提示" }),
+  ]
+
+  it("filterByTarget treats unspecified as chat", () => {
+    expect(filterByTarget(prompts, "chat").map((p) => p.id).sort()).toEqual(["c", "u"])
+    expect(filterByTarget(prompts, "agent").map((p) => p.id)).toEqual(["a"])
+  })
+
+  it("search matches the agent label", () => {
+    expect(filterPrompts(prompts, "agent", []).map((p) => p.id)).toEqual(["a"])
+    expect(filterPrompts(prompts, "本地", []).map((p) => p.id)).toEqual(["a"])
   })
 })

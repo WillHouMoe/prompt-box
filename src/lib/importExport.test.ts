@@ -83,3 +83,25 @@ describe("sanitizePrompt", () => {
     expect(sanitizePrompt("str")).toBeNull()
   })
 })
+
+describe("target sanitization", () => {
+  it("keeps a valid target", () => {
+    expect(sanitizePrompt({ ...prompt, target: "agent" })?.target).toBe("agent")
+  })
+
+  it("drops an invalid target", () => {
+    expect(sanitizePrompt({ ...prompt, target: "bogus" })?.target).toBeUndefined()
+  })
+
+  it("rejects an invalid target when parsing a backup", () => {
+    const res = parseBackup(JSON.stringify({ prompts: [{ ...prompt, target: "x" }] }))
+    expect(res.prompts).toHaveLength(0)
+    expect(res.errors).toHaveLength(1)
+  })
+
+  it("roundtrips a target through export/import", () => {
+    const withTarget = { ...prompt, target: "agent" as const }
+    const res = parseBackup(exportBackup([withTarget], categories))
+    expect(res.prompts[0].target).toBe("agent")
+  })
+})

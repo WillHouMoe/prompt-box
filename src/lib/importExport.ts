@@ -1,4 +1,5 @@
 import type { BackupData, Category, Prompt } from "@/types"
+import { isTarget } from "./targets"
 
 export const BACKUP_VERSION = 1
 
@@ -17,6 +18,7 @@ function isPrompt(v: unknown): v is Prompt {
   if (typeof v.updated_at !== "number") return false
   if (v.category_id !== undefined && typeof v.category_id !== "string") return false
   if (v.last_used_at !== undefined && typeof v.last_used_at !== "number") return false
+  if (v.target !== undefined && !isTarget(v.target)) return false
   return true
 }
 
@@ -36,6 +38,7 @@ export function sanitizePrompt(raw: unknown): Prompt | null {
     category_id: raw.category_id,
     tags: raw.tags.map((t) => t.trim()).filter(Boolean),
     favorite: raw.favorite,
+    target: isTarget(raw.target) ? raw.target : undefined,
     created_at: raw.created_at,
     updated_at: raw.updated_at,
     last_used_at: raw.last_used_at,

@@ -1,5 +1,5 @@
 import { Search, Plus } from "lucide-react"
-import type { Category, LibraryFilter, Prompt } from "@/types"
+import type { Category, LibraryFilter, Prompt, PromptTarget } from "@/types"
 import { PromptCard } from "@/components/PromptCard"
 import { EmptyState } from "@/components/EmptyState"
 import { Button } from "@/components/ui/Button"
@@ -20,6 +20,8 @@ interface LibraryProps extends CardHandlers {
   activeTag: string | null
   onTagClick: (tag: string) => void
   onCategoryClick: (id: string) => void
+  onTargetClick: (target: PromptTarget) => void
+  activeTarget?: PromptTarget | null
   query: string
   onQueryChange: (q: string) => void
   onNew: () => void
@@ -38,6 +40,8 @@ export function Library({
   activeTag,
   onTagClick,
   onCategoryClick,
+  onTargetClick,
+  activeTarget,
   query,
   onQueryChange,
   onNew,
@@ -51,7 +55,11 @@ export function Library({
         ? "最近使用"
         : activeFilter.type === "category"
           ? catMap.get(activeFilter.id)?.name ?? "分类"
-          : "我的 Prompt"
+          : activeFilter.type === "target"
+            ? activeFilter.target === "agent"
+              ? "本地 Agent"
+              : "网页 Chat"
+            : "我的 Prompt"
 
   return (
     <main className="min-w-0 flex-1 overflow-y-auto">
@@ -100,7 +108,7 @@ export function Library({
         {prompts.length === 0 ? (
           <EmptyState filtered={activeTag != null || query.trim().length > 0} onCreate={onNew} />
         ) : (
-          <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="mt-5 grid grid-cols-1 items-start gap-3 sm:grid-cols-2">
             {prompts.map((p) => (
               <PromptCard
                 key={p.id}
@@ -114,7 +122,9 @@ export function Library({
                 onToggleFavorite={onToggleFavorite}
                 onTagClick={onTagClick}
                 onCategoryClick={onCategoryClick}
+                onTargetClick={onTargetClick}
                 activeTag={activeTag}
+                activeTarget={activeTarget}
               />
             ))}
           </div>

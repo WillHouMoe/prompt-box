@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { Star, Clock, LayoutGrid, FolderKanban, Plus, X, Tag } from "lucide-react"
+import { Star, Clock, LayoutGrid, FolderKanban, Plus, X, Tag, MessageSquare, Terminal } from "lucide-react"
 import type { Category, LibraryFilter } from "@/types"
 import { cn } from "@/lib/utils"
 import { Button } from "./ui/Button"
@@ -114,6 +114,24 @@ export function Sidebar({
           <X size={13} className="ml-auto" />
         </button>
       )}
+
+      <div className="mx-1 my-2 border-t border-slate-100" />
+
+      <span className="px-1 pb-1 text-xs font-semibold uppercase tracking-wider text-slate-400">
+        类型
+      </span>
+      <NavButton
+        active={activeFilter.type === "target" && activeFilter.target === "chat"}
+        icon={<MessageSquare size={15} />}
+        label="网页 Chat"
+        onClick={() => onSelect({ type: "target", target: "chat" })}
+      />
+      <NavButton
+        active={activeFilter.type === "target" && activeFilter.target === "agent"}
+        icon={<Terminal size={15} />}
+        label="本地 Agent"
+        onClick={() => onSelect({ type: "target", target: "agent" })}
+      />
 
       <div className="mx-1 my-2 border-t border-slate-100" />
 

@@ -69,4 +69,27 @@ describe("App integration", () => {
     expect(finalText).toContain("I am happy.")
     expect(finalText).not.toContain("{{essay}}")
   })
+
+  it("shows Chat/Agent badges and filters by type", async () => {
+    renderApp()
+    const card = screen.getByText("Code Review").closest('[data-testid="prompt-card"]') as HTMLElement
+    expect(within(card).getByRole("button", { name: "Agent" })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole("button", { name: "本地 Agent" }))
+    expect(await screen.findByText("Code Review")).toBeInTheDocument()
+    expect(screen.queryByText("英语作文润色")).not.toBeInTheDocument()
+  })
+
+  it("creates a prompt with the Agent target", async () => {
+    renderApp()
+    await userEvent.click(screen.getAllByRole("button", { name: "新建" })[0])
+    const dialog = await screen.findByRole("dialog")
+    await userEvent.type(within(dialog).getByLabelText("标题"), "本地脚本提示")
+    await userEvent.type(within(dialog).getByLabelText("内容"), "运行 {{cmd}}")
+    await userEvent.click(within(dialog).getByRole("button", { name: /^Agent/ }))
+    await userEvent.click(within(dialog).getByRole("button", { name: "保存" }))
+    const card = (await screen.findByText("本地脚本提示")).closest(
+      '[data-testid="prompt-card"]',
+    ) as HTMLElement
+    expect(within(card).getByRole("button", { name: "Agent" })).toBeInTheDocument()
+  })
 })

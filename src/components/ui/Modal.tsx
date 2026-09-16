@@ -8,7 +8,7 @@ interface ModalProps {
   title?: string
   children: ReactNode
   className?: string
-  size?: "md" | "lg" | "xl"
+  size?: "md" | "lg" | "xl" | "2xl"
 }
 
 export function Modal({ open, onClose, title, children, className, size = "md" }: ModalProps) {
@@ -42,7 +42,13 @@ export function Modal({ open, onClose, title, children, className, size = "md" }
         aria-modal="true"
         className={cn(
           "animate-scale-in flex max-h-[90vh] w-full flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl",
-          size === "md" ? "max-w-lg" : size === "lg" ? "max-w-2xl" : "max-w-4xl",
+          size === "md"
+            ? "max-w-lg"
+            : size === "lg"
+              ? "max-w-2xl"
+              : size === "xl"
+                ? "max-w-4xl"
+                : "max-w-5xl",
           className,
         )}
       >

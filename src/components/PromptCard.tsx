@@ -1,7 +1,8 @@
 import { memo, useMemo } from "react"
-import { Copy, Play, Star, Pencil, Trash2, CopyPlus } from "lucide-react"
-import type { Category, Prompt } from "@/types"
+import { Copy, Play, Star, Pencil, Trash2, CopyPlus, MessageSquare, Terminal } from "lucide-react"
+import type { Category, Prompt, PromptTarget } from "@/types"
 import { extractVariables } from "@/lib/variables"
+import { effectiveTarget, TARGET_LABEL } from "@/lib/targets"
 import { cn, truncate } from "@/lib/utils"
 import { TagBadge } from "./ui/Badge"
 
@@ -16,7 +17,9 @@ interface PromptCardProps {
   onToggleFavorite: (p: Prompt) => void
   onTagClick: (tag: string) => void
   onCategoryClick: (id: string) => void
+  onTargetClick: (target: PromptTarget) => void
   activeTag?: string | null
+  activeTarget?: PromptTarget | null
 }
 
 function PromptCardInner({
@@ -30,8 +33,11 @@ function PromptCardInner({
   onToggleFavorite,
   onTagClick,
   onCategoryClick,
+  onTargetClick,
   activeTag,
+  activeTarget,
 }: PromptCardProps) {
+  const target = effectiveTarget(prompt)
   const variables = useMemo(() => extractVariables(prompt.content), [prompt.content])
   const summary = useMemo(() => truncate(prompt.content, 120), [prompt.content])
 
@@ -85,6 +91,19 @@ function PromptCardInner({
       )}
 
       <div className="mt-3 flex flex-wrap items-center gap-1.5">
+        <button
+          onClick={() => onTargetClick(target)}
+          className={cn(
+            "focus-ring inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium",
+            target === "agent"
+              ? "bg-violet-50 text-violet-700 hover:bg-violet-100"
+              : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100",
+            activeTarget === target && "ring-1 ring-current/40",
+          )}
+        >
+          {target === "agent" ? <Terminal size={11} /> : <MessageSquare size={11} />}
+          {TARGET_LABEL[target]}
+        </button>
         {category && (
           <button
             onClick={() => onCategoryClick(prompt.category_id!)}

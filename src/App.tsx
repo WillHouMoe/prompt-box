@@ -1,18 +1,20 @@
 import { useCallback, useMemo, useState } from "react"
-import { Boxes, Plus, Menu, Command } from "lucide-react"
-import type { Category, LibraryFilter, Prompt, PromptInput } from "@/types"
+import { Boxes, Plus, Menu, Command, Settings } from "lucide-react"
+import type { Category, LibraryFilter, Prompt, PromptInput, PromptTarget } from "@/types"
 import { usePromptStore } from "@/store/promptStore"
 import { useHotkeys } from "@/hooks/useHotkeys"
 import { useToast } from "@/hooks/useToast"
 import { useClipboard } from "@/hooks/useClipboard"
+import { useSettings } from "@/hooks/useSettings"
 import { extractVariables } from "@/lib/variables"
-import { filterPrompts, sortByRecent, sortByUpdated } from "@/lib/search"
+import { filterByTarget, filterPrompts, sortByRecent, sortByUpdated } from "@/lib/search"
 import { Sidebar } from "@/components/Sidebar"
 import { Library } from "@/pages/Library"
 import { PromptEditor } from "@/components/PromptEditor"
 import { UseModal } from "@/components/UseModal"
 import { CommandPalette } from "@/components/CommandPalette"
 import { ImportExport } from "@/components/ImportExport"
+import { SettingsModal } from "@/components/SettingsModal"
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog"
 import { Button } from "@/components/ui/Button"
 
@@ -20,12 +22,14 @@ export default function App() {
   const store = usePromptStore()
   const { toast } = useToast()
   const { copy } = useClipboard()
+  const { settings, updateSettings } = useSettings()
 
   const [activeFilter, setActiveFilter] = useState<LibraryFilter>({ type: "all" })
   const [activeTag, setActiveTag] = useState<string | null>(null)
   const [query, setQuery] = useState("")
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [paletteOpen, setPaletteOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const [editor, setEditor] = useState<{ open: boolean; prompt: Prompt | null }>({
     open: false,
     prompt: null,
@@ -69,6 +73,11 @@ export default function App() {
 
   const handleCategoryClick = useCallback((id: string) => {
     setActiveFilter({ type: "category", id })
+    setActiveTag(null)
+  }, [])
+
+  const handleTargetClick = useCallback((target: PromptTarget) => {
+    setActiveFilter({ type: "target", target })
     setActiveTag(null)
   }, [])
 
@@ -149,11 +158,16 @@ export default function App() {
       case "category":
         list = list.filter((p) => p.category_id === activeFilter.id)
         break
+      case "target":
+        list = filterByTarget(list, activeFilter.target)
+        break
       default:
         list = sortByUpdated(list)
     }
     return list
   }, [store.prompts, store.categories, query, activeTag, activeFilter])
+
+  const activeTarget = activeFilter.type === "target" ? activeFilter.target : null
 
   return (
     <div className="flex h-screen flex-col">
@@ -174,6 +188,15 @@ export default function App() {
         </div>
 
         <div className="flex items-center gap-1.5">
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="设置"
+            onClick={() => setSettingsOpen(true)}
+            className="text-slate-500"
+          >
+            <Settings size={17} />
+          </Button>
           <ImportExport prompts={store.prompts} categories={store.categories} onImport={handleImport} />
           <span className="mx-1 hidden text-slate-300 sm:inline">|</span>
           <button
@@ -215,7 +238,9 @@ export default function App() {
           onToggleFavorite={handleToggleFavorite}
           onTagClick={handleTagClick}
           onCategoryClick={handleCategoryClick}
+          onTargetClick={handleTargetClick}
           activeFilter={activeFilter}
+          activeTarget={activeTarget}
           activeTag={activeTag}
           query={query}
           onQueryChange={setQuery}
@@ -229,8 +254,11 @@ export default function App() {
         onClose={() => setEditor({ open: false, prompt: null })}
         prompt={editor.prompt}
         categories={store.categories}
+        settings={settings}
         onSave={handleSave}
         onCreateCategory={(name) => store.addCategory(name)}
+        onUpdateSettings={updateSettings}
+        onOpenSettings={() => setSettingsOpen(true)}
       />
       <UseModal
         open={useStateModal.open}
@@ -251,6 +279,12 @@ export default function App() {
         prompts={store.prompts}
         categories={store.categories}
         onSelect={openUse}
+      />
+      <SettingsModal
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        settings={settings}
+        onChange={updateSettings}
       />
 
     </div>

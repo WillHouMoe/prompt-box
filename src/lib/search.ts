@@ -1,12 +1,8 @@
-import type { Category, Prompt } from "@/types"
-
-export interface SearchOptions {
-  query?: string
-  categories?: Category[]
-}
+import type { Category, Prompt, PromptTarget } from "@/types"
+import { effectiveTarget, targetSearchText } from "./targets"
 
 /**
- * Case-insensitive full-text search across title, content, tags and category.
+ * Case-insensitive full-text search across title, content, tags, category and target.
  */
 export function filterPrompts(
   prompts: Prompt[],
@@ -23,8 +19,19 @@ export function filterPrompts(
     const content = p.content.toLowerCase()
     const tags = p.tags.join(" ").toLowerCase()
     const category = p.category_id ? (catName.get(p.category_id) ?? "") : ""
-    return title.includes(q) || content.includes(q) || tags.includes(q) || category.includes(q)
+    const target = targetSearchText(effectiveTarget(p))
+    return (
+      title.includes(q) ||
+      content.includes(q) ||
+      tags.includes(q) ||
+      category.includes(q) ||
+      target.includes(q)
+    )
   })
+}
+
+export function filterByTarget(prompts: Prompt[], target: PromptTarget): Prompt[] {
+  return prompts.filter((p) => effectiveTarget(p) === target)
 }
 
 export function sortByRecent(prompts: Prompt[]): Prompt[] {

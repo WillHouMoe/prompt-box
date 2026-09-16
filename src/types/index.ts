@@ -1,3 +1,5 @@
+export type PromptTarget = "chat" | "agent"
+
 export interface Prompt {
   id: string
   title: string
@@ -5,6 +7,8 @@ export interface Prompt {
   category_id?: string
   tags: string[]
   favorite: boolean
+  /** Where the prompt is meant to be used: web chat or a local agent. */
+  target?: PromptTarget
   created_at: number
   updated_at: number
   last_used_at?: number
@@ -30,3 +34,16 @@ export type LibraryFilter =
   | { type: "favorites" }
   | { type: "recent" }
   | { type: "category"; id: string }
+  | { type: "target"; target: PromptTarget }
+
+export type ChatRole = "system" | "user" | "assistant"
+
+export interface ChatMessage {
+  role: ChatRole
+  content: string
+}
+
+export interface AppSettings {
+  deepseekApiKey: string
+  deepseekModel: string
+}
