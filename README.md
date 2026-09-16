@@ -26,6 +26,7 @@
 - **Import / Export**：导出 `promptbox-backup.json`，可导入恢复
 - **Markdown**：内容与 Preview 支持基础 Markdown 渲染
 - **快捷键**：`⌘K` 打开快速搜索（Command Palette），`N` 新建，`Esc` 关闭
+- **瀑布流布局**：桌面双列卡片像小红书一样自然交错，不强行拉伸对齐（`src/lib/masonry.ts` 按卡片高度估算分列）
 - **响应式**：手机端无横向溢出，所有核心功能可触屏操作
 - **性能**：1000 条 Prompt 依然流畅
 
@@ -182,7 +183,7 @@ src/
     ui/            # 基础 UI 原语（Button、Input、Modal…）
   pages/           # 页面（Library 首页）
   hooks/           # 自定义 Hooks（快捷键、Toast、剪贴板）
-  lib/             # 纯函数（变量解析、搜索、导入导出、Markdown）
+  lib/             # 纯函数（变量解析、搜索、导入导出、Markdown、瀑布流分列）
   storage/         # 数据访问层（localStorage CRUD + Demo 种子）
   store/           # React 状态（Context Provider）
   types/           # TypeScript 类型
