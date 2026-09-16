@@ -1,8 +1,11 @@
+import { useMemo } from "react"
 import { Search, Plus } from "lucide-react"
 import type { Category, LibraryFilter, Prompt, PromptTarget } from "@/types"
 import { PromptCard } from "@/components/PromptCard"
 import { EmptyState } from "@/components/EmptyState"
 import { Button } from "@/components/ui/Button"
+import { useMediaQuery } from "@/hooks/useMediaQuery"
+import { estimatePromptHeight, splitIntoColumns } from "@/lib/masonry"
 
 export interface CardHandlers {
   onUse: (p: Prompt) => void
@@ -47,6 +50,13 @@ export function Library({
   onNew,
 }: LibraryProps) {
   const catMap = new Map(categories.map((c) => [c.id, c]))
+  const isWide = useMediaQuery("(min-width: 640px)")
+  // Staggered ("waterfall") layout: each column flows on its own instead of
+  // stretching cards to line up with a neighbour.
+  const columns = useMemo(
+    () => splitIntoColumns(prompts, isWide ? 2 : 1, estimatePromptHeight),
+    [prompts, isWide],
+  )
 
   const heading =
     activeFilter.type === "favorites"
@@ -108,24 +118,28 @@ export function Library({
         {prompts.length === 0 ? (
           <EmptyState filtered={activeTag != null || query.trim().length > 0} onCreate={onNew} />
         ) : (
-          <div className="mt-5 grid grid-cols-1 items-start gap-3 sm:grid-cols-2">
-            {prompts.map((p) => (
-              <PromptCard
-                key={p.id}
-                prompt={p}
-                category={p.category_id ? catMap.get(p.category_id) : undefined}
-                onOpen={onUse}
-                onEdit={onEdit}
-                onDuplicate={onDuplicate}
-                onDelete={onDelete}
-                onCopy={onCopy}
-                onToggleFavorite={onToggleFavorite}
-                onTagClick={onTagClick}
-                onCategoryClick={onCategoryClick}
-                onTargetClick={onTargetClick}
-                activeTag={activeTag}
-                activeTarget={activeTarget}
-              />
+          <div className="mt-5 flex items-start gap-3">
+            {columns.map((column, index) => (
+              <div key={index} className="flex min-w-0 flex-1 flex-col gap-3">
+                {column.map((p) => (
+                  <PromptCard
+                    key={p.id}
+                    prompt={p}
+                    category={p.category_id ? catMap.get(p.category_id) : undefined}
+                    onOpen={onUse}
+                    onEdit={onEdit}
+                    onDuplicate={onDuplicate}
+                    onDelete={onDelete}
+                    onCopy={onCopy}
+                    onToggleFavorite={onToggleFavorite}
+                    onTagClick={onTagClick}
+                    onCategoryClick={onCategoryClick}
+                    onTargetClick={onTargetClick}
+                    activeTag={activeTag}
+                    activeTarget={activeTarget}
+                  />
+                ))}
+              </div>
             ))}
           </div>
         )}

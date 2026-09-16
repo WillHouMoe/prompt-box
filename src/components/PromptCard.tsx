@@ -76,11 +76,14 @@ function PromptCardInner({
 
       {variables.length > 0 && (
         <div className="mt-2 flex flex-wrap items-center gap-1">
-          <span className="rounded bg-indigo-50 px-1.5 py-0.5 text-[11px] font-medium text-indigo-600">
+          <span className="inline-flex h-5 items-center rounded bg-indigo-50 px-1.5 text-[11px] font-medium leading-none text-indigo-600">
             变量 {variables.length}
           </span>
           {variables.slice(0, 4).map((v) => (
-            <code key={v} className="rounded bg-slate-100 px-1 py-0.5 font-mono text-[10px] text-slate-500">
+            <code
+              key={v}
+              className="inline-flex h-5 items-center rounded bg-slate-100 px-1.5 font-mono text-[10px] leading-none text-slate-500"
+            >
               {v}
             </code>
           ))}
@@ -94,7 +97,7 @@ function PromptCardInner({
         <button
           onClick={() => onTargetClick(target)}
           className={cn(
-            "focus-ring inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium",
+            "focus-ring inline-flex h-[22px] items-center gap-1 rounded-md px-1.5 text-[11px] font-medium leading-none",
             target === "agent"
               ? "bg-violet-50 text-violet-700 hover:bg-violet-100"
               : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100",
@@ -107,7 +110,7 @@ function PromptCardInner({
         {category && (
           <button
             onClick={() => onCategoryClick(prompt.category_id!)}
-            className="focus-ring rounded-md px-1.5 py-0.5 text-[11px] font-medium text-sky-700 hover:bg-sky-50"
+            className="focus-ring inline-flex h-[22px] items-center rounded-md px-1.5 text-[11px] font-medium leading-none text-sky-700 hover:bg-sky-50"
           >
             {category.name}
           </button>
@@ -116,7 +119,7 @@ function PromptCardInner({
           <button
             key={tag}
             onClick={() => onTagClick(tag)}
-            className="focus-ring rounded-md"
+            className="focus-ring inline-flex items-center rounded-md"
           >
             <TagBadge className={cn(activeTag === tag && "bg-indigo-100 text-indigo-700")}>
               {tag}

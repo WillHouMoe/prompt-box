@@ -4,7 +4,7 @@ export function TagBadge({ children, className }: { children: React.ReactNode; c
   return (
     <span
       className={cn(
-        "inline-flex items-center rounded-md bg-slate-100 px-1.5 py-0.5 text-[11px] font-medium text-slate-600",
+        "inline-flex h-[22px] items-center rounded-md bg-slate-100 px-1.5 text-[11px] font-medium leading-none text-slate-600",
         className,
       )}
     >
