@@ -9,6 +9,9 @@ import {
   ListPlus,
   CornerDownLeft,
   Wand2,
+  AlertTriangle,
+  Copy,
+  RotateCcw,
 } from "lucide-react"
 import type { ChatMessage, PromptDraft, PromptTarget } from "@/types"
 import {
@@ -18,6 +21,7 @@ import {
   stripCodeFence,
 } from "@/lib/deepseek"
 import { TARGET_LABEL } from "@/lib/targets"
+import { useClipboard } from "@/hooks/useClipboard"
 import { cn } from "@/lib/utils"
 import { MarkdownView } from "./MarkdownView"
 import { Button } from "./ui/Button"
@@ -30,6 +34,8 @@ interface PanelMessage {
   role: "user" | "assistant"
   content: string
   draft?: PromptDraft
+  /** 输出被截断：草稿可能不完整，不允许直接覆盖表单。 */
+  truncated?: boolean
 }
 
 interface AiAssistantProps {
@@ -59,11 +65,13 @@ const SUGGESTIONS = [
 let seq = 0
 const nextId = () => `m${(seq += 1)}`
 
-/** 说明这次「应用到表单」会影响哪些字段。 */
-function draftScope(draft: PromptDraft): string {
+/** 说明这次「应用到表单」会影响哪些字段，以及正文字数会怎么变。 */
+function draftScope(draft: PromptDraft, currentLength: number): string {
   const parts: string[] = []
   if (draft.title) parts.push("标题")
-  parts.push("内容")
+  const nextLength = draft.content?.length ?? 0
+  // 编辑长 Prompt 时先让用户看到正文字数变化，避免误覆盖。
+  parts.push(currentLength > 0 ? `内容 ${currentLength} → ${nextLength} 字` : "内容")
   if (draft.tags && draft.tags.length > 0) parts.push(`标签 ${draft.tags.map((t) => `#${t}`).join(" ")}`)
   if (draft.category) parts.push(`分类 ${draft.category}`)
   if (draft.target) parts.push(`类型 ${TARGET_LABEL[draft.target]}`)
@@ -92,6 +100,8 @@ export function AiAssistant({
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
   const [keyDraft, setKeyDraft] = useState("")
+  const [lastSent, setLastSent] = useState("")
+  const { copy } = useClipboard()
   const listRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -113,11 +123,12 @@ export function AiAssistant({
       { role: "user", content: text },
     ]
     setMessages([...messages, { id: nextId(), role: "user", content: text }])
+    setLastSent(text)
     setInput("")
     setError("")
     setLoading(true)
     try {
-      const { reply, draft } = await askAssistant({
+      const { reply, draft, truncated } = await askAssistant({
         apiKey,
         model,
         baseUrl,
@@ -132,7 +143,10 @@ export function AiAssistant({
         },
         messages: history,
       })
-      setMessages((prev) => [...prev, { id: nextId(), role: "assistant", content: reply, draft }])
+      setMessages((prev) => [
+        ...prev,
+        { id: nextId(), role: "assistant", content: reply, draft, truncated },
+      ])
     } catch (err) {
       setError(err instanceof DeepSeekError ? err.message : "请求失败，请稍后重试")
     } finally {
@@ -268,49 +282,76 @@ export function AiAssistant({
               className="rounded-2xl rounded-bl-sm border border-slate-200 bg-white px-3 py-2"
             >
               <MarkdownView content={m.content} />
-              {m.draft && (
+              {m.draft && !m.truncated && (
                 <p className="mt-2 flex items-start gap-1 text-[11px] leading-relaxed text-slate-400">
                   <Wand2 size={12} className="mt-0.5 shrink-0" />
-                  <span>将填入：{draftScope(m.draft)}</span>
+                  <span>将填入：{draftScope(m.draft, content.length)}</span>
                 </p>
               )}
               <div className="mt-2 flex flex-wrap items-center gap-1.5 border-t border-slate-100 pt-2">
-                {m.draft ? (
-                  <button
-                    onClick={() => onApplyDraft(m.draft as PromptDraft)}
-                    className="focus-ring inline-flex items-center gap-1 rounded-md bg-indigo-50 px-2 py-1 text-[11px] font-medium text-indigo-700 hover:bg-indigo-100"
-                  >
-                    <CornerDownLeft size={12} />
-                    应用到表单
-                  </button>
-                ) : null}
-                <button
-                  onClick={() =>
-                    m.draft
-                      ? onApplyContent(m.draft.content ?? "")
-                      : onApplyContent(stripCodeFence(m.content))
-                  }
-                  className={cn(
-                    "focus-ring inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium",
-                    m.draft
-                      ? "border border-slate-200 text-slate-600 hover:bg-slate-50"
-                      : "bg-indigo-50 text-indigo-700 hover:bg-indigo-100",
-                  )}
-                >
-                  <CornerDownLeft size={12} />
-                  只填入内容
-                </button>
-                <button
-                  onClick={() =>
-                    onAppendContent(
-                      m.draft ? (m.draft.content ?? "") : stripCodeFence(m.content),
-                    )
-                  }
-                  className="focus-ring inline-flex items-center gap-1 rounded-md border border-slate-200 px-2 py-1 text-[11px] font-medium text-slate-600 hover:bg-slate-50"
-                >
-                  <ListPlus size={12} />
-                  追加到内容
-                </button>
+                {m.truncated ? (
+                  <>
+                    <span className="inline-flex items-center gap-1 rounded-md bg-amber-50 px-2 py-1 text-[11px] font-medium text-amber-700">
+                      <AlertTriangle size={12} />
+                      输出被截断，未写入表单
+                    </span>
+                    <button
+                      onClick={() => copy(m.draft?.content ?? m.content)}
+                      className="focus-ring inline-flex items-center gap-1 rounded-md border border-slate-200 px-2 py-1 text-[11px] font-medium text-slate-600 hover:bg-slate-50"
+                    >
+                      <Copy size={12} />
+                      复制已生成部分
+                    </button>
+                    {lastSent ? (
+                      <button
+                        onClick={() => send(lastSent)}
+                        className="focus-ring inline-flex items-center gap-1 rounded-md border border-slate-200 px-2 py-1 text-[11px] font-medium text-slate-600 hover:bg-slate-50"
+                      >
+                        <RotateCcw size={12} />
+                        重新生成
+                      </button>
+                    ) : null}
+                  </>
+                ) : (
+                  <>
+                    {m.draft ? (
+                      <button
+                        onClick={() => onApplyDraft(m.draft as PromptDraft)}
+                        className="focus-ring inline-flex items-center gap-1 rounded-md bg-indigo-50 px-2 py-1 text-[11px] font-medium text-indigo-700 hover:bg-indigo-100"
+                      >
+                        <CornerDownLeft size={12} />
+                        应用到表单
+                      </button>
+                    ) : null}
+                    <button
+                      onClick={() =>
+                        m.draft
+                          ? onApplyContent(m.draft.content ?? "")
+                          : onApplyContent(stripCodeFence(m.content))
+                      }
+                      className={cn(
+                        "focus-ring inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium",
+                        m.draft
+                          ? "border border-slate-200 text-slate-600 hover:bg-slate-50"
+                          : "bg-indigo-50 text-indigo-700 hover:bg-indigo-100",
+                      )}
+                    >
+                      <CornerDownLeft size={12} />
+                      只填入内容
+                    </button>
+                    <button
+                      onClick={() =>
+                        onAppendContent(
+                          m.draft ? (m.draft.content ?? "") : stripCodeFence(m.content),
+                        )
+                      }
+                      className="focus-ring inline-flex items-center gap-1 rounded-md border border-slate-200 px-2 py-1 text-[11px] font-medium text-slate-600 hover:bg-slate-50"
+                    >
+                      <ListPlus size={12} />
+                      追加到内容
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           ),

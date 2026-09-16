@@ -1,6 +1,9 @@
 import { describe, it, expect, vi, afterEach } from "vitest"
 import {
   askAssistant,
+  readJsonString,
+  readJsonStringArray,
+  salvagePromptDraft,
   buildSystemPrompt,
   chatEndpoint,
   chatWithDeepSeek,
@@ -38,8 +41,10 @@ const jsonRes = (data: unknown, status = 200) => ({
   json: async () => data,
 })
 
-const okContent = (content: string) =>
-  jsonRes({ choices: [{ message: { reasoning_content: "思考过程", content } }] })
+const okContent = (content: string, finishReason = "stop") =>
+  jsonRes({
+    choices: [{ message: { reasoning_content: "思考过程", content }, finish_reason: finishReason }],
+  })
 
 describe("models", () => {
   it("only exposes current DeepSeek models", () => {
@@ -96,6 +101,7 @@ describe("buildSystemPrompt", () => {
     expect(s).toContain('"reply"')
     expect(s).toContain('"draft"')
     expect(s).toContain("json")
+    expect(s).toContain("完整正文")
   })
 
   it("includes the current prompt context and categories", () => {
@@ -178,7 +184,8 @@ describe("parseAssistantReply", () => {
 
   it("falls back to plain text", () => {
     const out = parseAssistantReply("```\n直接回答\n```")
-    expect(out).toEqual({ reply: "直接回答" })
+    expect(out.reply).toBe("直接回答")
+    expect(out.draft).toBeUndefined()
   })
 })
 
@@ -195,7 +202,9 @@ describe("chatWithDeepSeek", () => {
       apiKey: "sk-test",
       messages: [{ role: "user", content: "hi" }],
     })
-    expect(out).toBe("生成的 Prompt")
+    expect(out.content).toBe("生成的 Prompt")
+    expect(out.truncated).toBe(false)
+    expect(out.finishReason).toBe("stop")
   })
 
   it("sends the key to the chat completions endpoint", async () => {
@@ -240,12 +249,29 @@ describe("chatWithDeepSeek", () => {
     expect(body.reasoning_effort).toBe("high")
   })
 
-  it("asks for JSON output and reserves max_tokens", async () => {
+  it("asks for JSON output and leaves max_tokens to the API default", async () => {
+    // DeepSeek defaults to 8K (non-thinking) / 64K (thinking) output tokens.
+    // Sending a small max_tokens here truncates long prompts into invalid JSON.
     const spy = spyFetch(() => okContent('{"reply":"ok"}'))
     await chatWithDeepSeek({ apiKey: "k", messages: [], json: true })
     const body = JSON.parse((spy.mock.calls[0][1] as RequestInit).body as string)
     expect(body.response_format).toEqual({ type: "json_object" })
-    expect(body.max_tokens).toBe(4096)
+    expect(body.max_tokens).toBeUndefined()
+  })
+
+  it("only sends max_tokens when explicitly asked", async () => {
+    const spy = spyFetch(() => okContent('{"reply":"ok"}'))
+    await chatWithDeepSeek({ apiKey: "k", messages: [], json: true, maxTokens: 8192 })
+    const body = JSON.parse((spy.mock.calls[0][1] as RequestInit).body as string)
+    expect(body.max_tokens).toBe(8192)
+  })
+
+  it("reports a truncated answer", async () => {
+    spyFetch(() => okContent('{"reply":"写到一半', "length"))
+    const out = await chatWithDeepSeek({ apiKey: "k", messages: [], json: true })
+    expect(out.truncated).toBe(true)
+    expect(out.finishReason).toBe("length")
+    expect(out.content).toBe('{"reply":"写到一半')
   })
 
   it.each([
@@ -287,6 +313,7 @@ describe("askAssistant", () => {
       context: { title: "标题" },
       messages: [{ role: "user", content: "帮我写" }],
     })
+    expect(out.truncated).toBe(false)
     const body = JSON.parse((spy.mock.calls[0][1] as RequestInit).body as string)
     expect(body.messages[0].role).toBe("system")
     expect(body.messages[0].content).toContain("PromptBox")
@@ -302,6 +329,63 @@ describe("askAssistant", () => {
     )
     const out = await askAssistant({ apiKey: "k", messages: [{ role: "user", content: "hi" }] })
     expect(spy).toHaveBeenCalledTimes(2)
-    expect(out).toEqual({ reply: "纯文本回答" })
+    expect(out.reply).toBe("纯文本回答")
+    expect(out.draft).toBeUndefined()
+    expect(out.truncated).toBe(false)
+  })
+})
+
+describe("truncated output", () => {
+  const truncatedRaw =
+    '{"reply":"我补好了第十七条","draft":{"title":"文言实词表","content":"# 任务\\n\\n第一段\\n参考：\\n| 词语 | 类型 |\\n| 当 | 实词 |\\n| 以'
+
+  it("reads fields out of an invalid, cut off JSON object", () => {
+    expect(readJsonString(truncatedRaw, "reply")).toBe("我补好了第十七条")
+    expect(readJsonString(truncatedRaw, "title")).toBe("文言实词表")
+    const content = readJsonString(truncatedRaw, "content")
+    expect(content).toContain("# 任务")
+    expect(content).toContain("| 以")
+    // \n escapes are decoded, including for the final (unterminated) string
+    expect(content).toContain("第一段")
+  })
+
+  it("reads an unterminated tags array", () => {
+    expect(readJsonStringArray('{"tags":["语文","文言', "tags")).toEqual(["语文", "文言"])
+    expect(readJsonStringArray('{"tags":[]}', "tags")).toEqual([])
+    expect(readJsonStringArray('{"reply":"x"}', "tags")).toBeUndefined()
+  })
+
+  it("salvages a draft from a cut off response", () => {
+    const draft = salvagePromptDraft(truncatedRaw)
+    expect(draft?.title).toBe("文言实词表")
+    expect(draft?.content?.startsWith("# 任务")).toBe(true)
+  })
+
+  it("marks a truncated reply and never shows raw JSON", () => {
+    const out = parseAssistantReply(truncatedRaw, { truncated: true })
+    expect(out.truncated).toBe(true)
+    expect(out.reply).toBe("我补好了第十七条")
+    expect(out.reply).not.toContain("{")
+    expect(out.draft?.content).toContain("# 任务")
+  })
+
+  it("keeps a truncated response usable even without a reply field", () => {
+    const out = parseAssistantReply('{"draft":{"content":"只有正文', { truncated: true })
+    expect(out.truncated).toBe(true)
+    expect(out.reply).toContain("截断")
+    expect(out.draft?.content).toBe("只有正文")
+  })
+
+  it("explains instead of dumping JSON when nothing can be recovered", () => {
+    const out = parseAssistantReply('{"reply":', { truncated: true })
+    expect(out.reply).toContain("截断")
+    expect(out.draft).toBeUndefined()
+  })
+
+  it("surfaces truncation from askAssistant", async () => {
+    spyFetch(() => okContent(truncatedRaw, "length"))
+    const out = await askAssistant({ apiKey: "k", messages: [{ role: "user", content: "改一下" }] })
+    expect(out.truncated).toBe(true)
+    expect(out.draft?.content).toContain("# 任务")
   })
 })

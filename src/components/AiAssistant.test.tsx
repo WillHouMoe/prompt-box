@@ -39,13 +39,13 @@ function setup(overrides: Partial<Parameters<typeof AiAssistant>[0]> = {}) {
   return { onApplyContent, onAppendContent, onApplyDraft, onOpenSettings, onSaveKey }
 }
 
-function stubReply(content: string) {
+function stubReply(content: string, finishReason = "stop") {
   vi.stubGlobal(
     "fetch",
     vi.fn(async () => ({
       ok: true,
       status: 200,
-      json: async () => ({ choices: [{ message: { content } }] }),
+      json: async () => ({ choices: [{ message: { content }, finish_reason: finishReason }] }),
     })),
   )
 }
@@ -80,7 +80,11 @@ describe("AiAssistant", () => {
     const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => ({
       ok: true,
       status: 200,
-      json: async () => ({ choices: [{ message: { content: JSON.stringify({ reply: "ok" }) } }] }),
+      json: async () => ({
+        choices: [
+          { message: { content: JSON.stringify({ reply: "ok" }) }, finish_reason: "stop" },
+        ],
+      }),
     }))
     vi.stubGlobal("fetch", fetchMock)
     setup({ thinking: true })
@@ -92,6 +96,27 @@ describe("AiAssistant", () => {
     expect(body.messages[0].content).toContain("{{变量名}}")
     expect(body.response_format).toEqual({ type: "json_object" })
     expect(body.thinking).toEqual({ type: "enabled" })
+    // a hard-coded small max_tokens is what truncated long prompts into invalid JSON
+    expect(body.max_tokens).toBeUndefined()
+  })
+
+  it("refuses to write a truncated draft into the form", async () => {
+    stubReply(
+      '{"reply":"我补好了第十七条","draft":{"title":"文言实词表","content":"# 任务\\n\\n第一段',
+      "length",
+    )
+    const { onApplyDraft, onApplyContent } = setup()
+    await userEvent.type(screen.getByPlaceholderText(/描述你想写的 Prompt/), "帮我补充一条规则")
+    await userEvent.click(screen.getByRole("button", { name: /发送/ }))
+    await screen.findByText(/输出被截断/)
+
+    expect(onApplyDraft).not.toHaveBeenCalled()
+    expect(onApplyContent).not.toHaveBeenCalled()
+    expect(screen.queryByRole("button", { name: /应用到表单/ })).toBeNull()
+    // the raw JSON must never be rendered to the user
+    expect(screen.queryByText(/\{"reply"/)).toBeNull()
+    expect(screen.getByText("我补好了第十七条")).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: /重新生成/ })).toBeInTheDocument()
   })
 
   it("applies the whole draft to the form", async () => {
@@ -116,6 +141,13 @@ describe("AiAssistant", () => {
     await userEvent.click(screen.getByRole("button", { name: /发送/ }))
     await userEvent.click(await screen.findByRole("button", { name: /追加到内容/ }))
     expect(onAppendContent).toHaveBeenCalledWith(DRAFT.content)
+  })
+
+  it("shows how the content length will change before applying", async () => {
+    setup({ content: "短的旧内容" })
+    await userEvent.type(screen.getByPlaceholderText(/描述你想写的 Prompt/), "改一下")
+    await userEvent.click(screen.getByRole("button", { name: /发送/ }))
+    expect(await screen.findByText(/内容 5 → \d+ 字/)).toBeInTheDocument()
   })
 
   it("falls back to plain text when the model ignores the JSON contract", async () => {

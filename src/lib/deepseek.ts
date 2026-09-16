@@ -22,15 +22,16 @@ export const DEEPSEEK_MODEL_HINT: Record<string, string> = {
 
 export const DEFAULT_DEEPSEEK_MODEL: DeepSeekModel = "deepseek-flash"
 
-export type ReasoningEffort = "low" | "high" | "max"
+export type ReasoningEffort = "none" | "low" | "high" | "max"
 
 export const REASONING_EFFORT_LABEL: Record<ReasoningEffort, string> = {
+  none: "关闭",
   low: "低",
   high: "高",
   max: "最高",
 }
 
-export type DeepSeekErrorCode = "missing-key" | "network" | "http" | "empty"
+export type DeepSeekErrorCode = "missing-key" | "network" | "http" | "empty" | "truncated"
 
 export class DeepSeekError extends Error {
   code: DeepSeekErrorCode
@@ -76,7 +77,7 @@ export interface AssistantContext {
  * 关键点（也是接入 AI 助手最容易翻车的地方）：
  * 1. 说清产品是什么、Prompt 会被粘贴到哪里，避免 AI 写成一段"聊天回答"。
  * 2. 明确输出契约：一个 JSON 对象，结构固定，并给出示例。
- * 3. 明确内容规则：{{变量}} 占位符、正文不套代码块、不寒暄。
+ * 3. 明确内容规则：{{变量}} 占位符、正文不套代码块、不寒暄、不省略。
  * 4. 带上当前编辑中的 Prompt 上下文，让 AI 在用户已有内容上改，而不是从零瞎写。
  */
 export function buildSystemPrompt(context: AssistantContext = {}): string {
@@ -91,21 +92,27 @@ export function buildSystemPrompt(context: AssistantContext = {}): string {
     "PromptBox 是一个个人 Prompt 工具箱：用户把经常使用的 Prompt 存起来，用 {{变量名}} 标记每次使用时需要填写的内容，使用时自动生成表单并一键复制最终文本。Prompt 最终会被用户粘贴到网页版 AI 对话框（Chat）或本地 Agent（Claude Code、Cursor、Codex 等，Agent）里执行。",
     "",
     "## 你的任务",
-    "把用户的一句话需求，变成一条能直接存进 PromptBox、并且每天都能用的 Prompt。",
+    "把用户的一句话需求（或用户已有的长 Prompt）变成一条能直接存进 PromptBox、并且每天都能用的 Prompt。",
     "",
     "## 内容规则（必须遵守）",
     "1. 需要用户每次填写的内容，写成 {{变量名}} 占位符，例如 {{essay}}、{{code}}。",
     "   - 变量名用简短英文小写，多个单词用下划线连接，不要用中文、空格或标点。",
     "   - 同一个变量在正文里出现多次时，变量名必须完全一致。",
-    "2. content 是要直接粘贴使用的完整正文：不要寒暄，不要解释，不要在正文外面套 ``` 代码块，不要写“以下是我的 Prompt”之类的话。",
+    "2. content 是要直接粘贴使用的完整正文：不要寒暄，不要解释，不要在正文外面套 ``` 代码块。",
     "3. 正文结构：先写角色与目标，再写具体要求（用编号列表），最后写输出格式要求。",
     "4. 不要编造用户没有提供的事实；不确定的具体内容一律留给变量。",
     "5. title 用 10 个字以内的中文短语；tags 最多 5 个中文短词；category 只能从下面的分类里选一个，选不到就给空字符串。",
     `6. 分类可选值：${categories}`,
     '7. target：给网页对话框用填 "chat"；给能读写文件的本地 Agent 用填 "agent"。用户没说就按当前上下文推断，默认 "chat"。',
     "",
+    "## 关于长内容（非常重要）",
+    "- 用户经常编辑很长的 Prompt（几千字、带表格、带多级标题）。这种情况必须把**改完之后的完整正文**写进 content，一个字都不能少。",
+    "- 严禁用省略写法偷懒，例如“…（其余内容不变）”、“（此处省略）”、“以此类推”、“（同上）”、只写改动部分、只写标题骨架。",
+    "- 如果正文很长，就写长一点，不要为了简短而牺牲完整性。content 是给程序读取的字段，长度不是问题。",
+    "- 同时 reply 必须非常简短（1-2 句）：它只用来告诉用户你改了什么。不要把正文内容塞进 reply。",
+    "",
     "## 输出格式",
-    "只输出一个 JSON 对象，不要输出任何其他文字，也不要包在代码块里。json 结构如下：",
+    "只输出一个 JSON 对象，不要输出任何其他文字，也不要包在代码块里。先把 reply 写在最前面，json 结构如下：",
     "{",
     '  "reply": "用 1-2 句中文说明你做了什么、用户还可以改哪里",',
     '  "draft": {',
@@ -129,7 +136,10 @@ export function buildSystemPrompt(context: AssistantContext = {}): string {
   if (current.length > 0) {
     lines.push("", "## 用户当前正在编辑的 Prompt", ...current)
   }
-  lines.push("", "用户可能只是想微调当前内容，请优先在现有内容上修改。")
+  lines.push(
+    "",
+    "用户可能只是想微调当前内容，请优先在现有内容上修改；改完之后仍然要把完整的正文放进 content。",
+  )
   return lines.join("\n")
 }
 
@@ -144,7 +154,19 @@ export interface ChatOptions {
   signal?: AbortSignal
   /** 要求接口返回单个 JSON 对象（json_object 模式）。 */
   json?: boolean
+  /**
+   * 输出上限。默认不传：DeepSeek 自己的默认值是 8K（非思考）/ 64K（思考），
+   * 比写死一个小值安全得多（写死会导致长 Prompt 被截断）。
+   */
   maxTokens?: number
+}
+
+export interface ChatResult {
+  content: string
+  /** stop / length / content_filter / ... */
+  finishReason?: string
+  /** 生成被 max_tokens 或上下文长度截断。 */
+  truncated: boolean
 }
 
 /** Call the DeepSeek chat completions API (OpenAI-compatible) from the browser. */
@@ -158,7 +180,7 @@ export async function chatWithDeepSeek({
   signal,
   json = false,
   maxTokens,
-}: ChatOptions): Promise<string> {
+}: ChatOptions): Promise<ChatResult> {
   if (!apiKey || !apiKey.trim()) {
     throw new DeepSeekError("请先填写 DeepSeek API Key", "missing-key")
   }
@@ -170,13 +192,8 @@ export async function chatWithDeepSeek({
     thinking: { type: thinking ? "enabled" : "disabled" },
   }
   if (thinking) body.reasoning_effort = reasoningEffort
-  if (json) {
-    body.response_format = { type: "json_object" }
-    // json_object 模式下必须给足 max_tokens，否则 JSON 会被截断。
-    body.max_tokens = maxTokens ?? 4096
-  } else if (maxTokens) {
-    body.max_tokens = maxTokens
-  }
+  if (json) body.response_format = { type: "json_object" }
+  if (maxTokens && maxTokens > 0) body.max_tokens = maxTokens
 
   let res: Response
   try {
@@ -191,10 +208,7 @@ export async function chatWithDeepSeek({
     })
   } catch (err) {
     if ((err as Error)?.name === "AbortError") throw err
-    throw new DeepSeekError(
-      "无法连接 DeepSeek：请检查网络是否正常，然后重试。",
-      "network",
-    )
+    throw new DeepSeekError("无法连接 DeepSeek：请检查网络是否正常，然后重试。", "network")
   }
 
   if (!res.ok) {
@@ -214,21 +228,31 @@ export async function chatWithDeepSeek({
   }
 
   const data = (await res.json()) as {
-    choices?: Array<{ message?: { content?: string } }>
+    choices?: Array<{ message?: { content?: string }; finish_reason?: string }>
   }
+  const choice = data?.choices?.[0]
+  const finishReason = choice?.finish_reason
   // 思考模式下会有 reasoning_content，这里只要最终答案。
-  const content = data?.choices?.[0]?.message?.content ?? ""
+  const content = choice?.message?.content ?? ""
   if (!content.trim()) {
-    throw new DeepSeekError("DeepSeek 没有返回内容，请再试一次。", "empty")
+    throw new DeepSeekError(
+      finishReason === "length"
+        ? "DeepSeek 还没写出内容就用完了输出额度，请重试或换用更强的模型。"
+        : "DeepSeek 没有返回内容，请再试一次。",
+      "empty",
+    )
   }
-  return content
+  return { content, finishReason, truncated: finishReason === "length" }
 }
 
 /** Remove a wrapping ``` code fence if the model added one. */
 export function stripCodeFence(text: string): string {
   const trimmed = text.trim()
   const match = trimmed.match(/^```[a-zA-Z0-9]*\n([\s\S]*?)\n?```$/)
-  return match ? match[1].trim() : trimmed
+  if (match) return match[1].trim()
+  // Unterminated fence (happens when the answer was cut off mid-stream).
+  const open = trimmed.match(/^```[a-zA-Z0-9]*\n([\s\S]*)$/)
+  return open ? open[1].trim() : trimmed
 }
 
 /**
@@ -278,13 +302,7 @@ export function normalizeDraft(value: unknown): PromptDraft | undefined {
   if (!content) return undefined
 
   const tags = Array.isArray(raw.tags)
-    ? Array.from(
-        new Set(
-          raw.tags
-            .map((t) => cleanString(t, 24))
-            .filter(Boolean),
-        ),
-      ).slice(0, 5)
+    ? Array.from(new Set(raw.tags.map((t) => cleanString(t, 24)).filter(Boolean))).slice(0, 5)
     : []
 
   const target = raw.target === "agent" ? "agent" : raw.target === "chat" ? "chat" : undefined
@@ -296,6 +314,125 @@ export function normalizeDraft(value: unknown): PromptDraft | undefined {
     category: cleanString(raw.category, 24) || undefined,
     target,
   }
+}
+
+/* ------------------------------------------------------------------ *
+ * 容错读取：模型输出被截断时，JSON 已经不是合法 JSON，但字段大多完整，
+ * 这里用一个小扫描器把能读到的字段读出来，避免把整段 JSON 直接甩给用户。
+ * ------------------------------------------------------------------ */
+
+function decodeEscape(char: string): string {
+  switch (char) {
+    case "n":
+      return "\n"
+    case "t":
+      return "\t"
+    case "r":
+      return "\r"
+    case "b":
+      return "\b"
+    case "f":
+      return "\f"
+    case '"':
+      return '"'
+    case "\\":
+      return "\\"
+    case "/":
+      return "/"
+    default:
+      return char
+  }
+}
+
+/**
+ * 从 `i` 处（必须指向 `"`）读一个 JSON 字符串。
+ * `closed` 为 false 表示字符串没有闭合——说明输出被截断了。
+ */
+function readStringAt(text: string, i: number): { value: string; end: number; closed: boolean } {
+  let out = ""
+  let index = i + 1
+  while (index < text.length) {
+    const ch = text[index]
+    if (ch === "\\") {
+      const next = text[index + 1]
+      if (next === undefined) break
+      if (next === "u") {
+        const hex = text.slice(index + 2, index + 6)
+        if (/^[0-9a-fA-F]{4}$/.test(hex)) {
+          out += String.fromCharCode(parseInt(hex, 16))
+          index += 6
+          continue
+        }
+        break
+      }
+      out += decodeEscape(next)
+      index += 2
+      continue
+    }
+    if (ch === '"') return { value: out, end: index + 1, closed: true }
+    out += ch
+    index += 1
+  }
+  return { value: out, end: text.length, closed: false }
+}
+
+/** 找到 `"key"` 后面的第一个字符串值。 */
+function stringValueIndex(text: string, key: string): number | undefined {
+  const keyIndex = text.indexOf(`"${key}"`)
+  if (keyIndex < 0) return undefined
+  const colon = text.indexOf(":", keyIndex + key.length + 2)
+  if (colon < 0) return undefined
+  let i = colon + 1
+  while (i < text.length && /\s/.test(text[i])) i += 1
+  return text[i] === '"' ? i : undefined
+}
+
+/** 读取 `"key": "..."`，允许字符串没有闭合（被截断）。 */
+export function readJsonString(text: string, key: string): string | undefined {
+  const i = stringValueIndex(text, key)
+  if (i === undefined) return undefined
+  return readStringAt(text, i).value
+}
+
+/** 读取 `"key": ["a", "b"]`，允许数组没有闭合。 */
+export function readJsonStringArray(text: string, key: string): string[] | undefined {
+  const keyIndex = text.indexOf(`"${key}"`)
+  if (keyIndex < 0) return undefined
+  const open = text.indexOf("[", keyIndex)
+  if (open < 0) return undefined
+
+  const items: string[] = []
+  let i = open + 1
+  while (i < text.length) {
+    const ch = text[i]
+    if (ch === "]") break
+    if (ch === '"') {
+      const read = readStringAt(text, i)
+      items.push(read.value)
+      if (!read.closed) break
+      i = read.end
+      continue
+    }
+    i += 1
+  }
+  return items
+}
+
+function looksLikeDraftJson(text: string): boolean {
+  return /^\s*\{[\s\S]*"(reply|draft|content)"\s*:/.test(text)
+}
+
+/** 被截断时尽力还原 draft。 */
+export function salvagePromptDraft(text: string): PromptDraft | undefined {
+  const content = readJsonString(text, "content")
+  if (!content || !content.trim()) return undefined
+  return normalizeDraft({
+    title: readJsonString(text, "title"),
+    content,
+    tags: readJsonStringArray(text, "tags"),
+    category: readJsonString(text, "category"),
+    target: readJsonString(text, "target"),
+  })
 }
 
 export function parsePromptDraft(raw: string): PromptDraft | undefined {
@@ -318,30 +455,66 @@ export interface AssistantReply {
   reply: string
   /** AI 生成的 Prompt 草稿，可直接应用到表单。 */
   draft?: PromptDraft
+  /** 输出被截断：草稿可能不完整（"length"）。 */
+  truncated?: boolean
 }
 
-/** 解析一次 AI 回答：优先读结构化 JSON，失败就退化成纯文本回答。 */
-export function parseAssistantReply(raw: string): AssistantReply {
+/**
+ * 解析一次 AI 回答。
+ *
+ * 三种情况：
+ * 1. 完整 JSON -> 取 reply / draft；
+ * 2. 被截断的 JSON -> 用容错扫描器把能读到的字段读出来，并标记 truncated；
+ * 3. 完全不是 JSON -> 当成普通文本回答。
+ * 无论哪种情况，都不会把原始 JSON 直接显示给用户。
+ */
+export function parseAssistantReply(
+  raw: string,
+  options: { truncated?: boolean } = {},
+): AssistantReply {
+  const truncated = options.truncated === true
   const text = stripCodeFence(raw)
-  const json = extractJsonObject(text)
-  if (json) {
-    try {
-      const record = asRecord(JSON.parse(json))
-      if (record) {
-        const reply = cleanString(record.reply, 1000)
-        const draft = normalizeDraft(record.draft ?? (record.content ? record : undefined))
-        if (reply || draft) {
-          return {
-            reply: reply || "已经帮你写好草稿了，直接点「应用到表单」即可。",
-            draft,
-          }
+
+  if (!looksLikeDraftJson(text)) {
+    return { reply: text, truncated }
+  }
+
+  const json = extractJsonObject(text) ?? text
+  try {
+    const record = asRecord(JSON.parse(json))
+    if (record) {
+      const reply = cleanString(record.reply, 2000)
+      const draft = normalizeDraft(record.draft ?? (record.content ? record : undefined))
+      if (reply || draft) {
+        return {
+          reply: reply || "已经帮你写好草稿了，直接点「应用到表单」即可。",
+          draft,
+          truncated,
         }
       }
-    } catch {
-      /* 落到下面的纯文本分支 */
+    }
+  } catch {
+    /* 落到下面的容错分支 */
+  }
+
+  const reply = readJsonString(text, "reply")
+  const draft = salvagePromptDraft(text)
+  if (reply || draft) {
+    return {
+      reply:
+        reply ||
+        (truncated ? "输出被截断了，下面是已经生成的部分。" : "已经帮你写好草稿了。"),
+      draft,
+      truncated,
     }
   }
-  return { reply: text }
+
+  return {
+    reply: truncated
+      ? "输出被截断了，而且没能取到可用的内容，请重新生成一次。"
+      : "AI 的这次返回无法解析，请重新生成一次。",
+    truncated,
+  }
 }
 
 export interface AskOptions {
@@ -357,6 +530,9 @@ export interface AskOptions {
 /**
  * 一次完整的 AI 助手调用：带上 PromptBox 的默认系统提示词，用 JSON 模式拿到
  * 「说明 + 草稿」结构，保证结果一定能落到网站自己的字段上。
+ *
+ * 注意 max_tokens 故意不设置：DeepSeek 默认给 8K（非思考）/ 64K（思考），
+ * 如果在这里写一个小值，长 Prompt 会被截断成非法 JSON。
  */
 export async function askAssistant({
   apiKey,
@@ -371,30 +547,28 @@ export async function askAssistant({
     { role: "system", content: buildSystemPrompt(context) },
     ...messages,
   ]
-  try {
-    const raw = await chatWithDeepSeek({
+
+  const run = async (json: boolean) =>
+    chatWithDeepSeek({
       apiKey,
       model,
       baseUrl,
       thinking,
       messages: payload,
       signal,
-      json: true,
+      json,
     })
-    return parseAssistantReply(raw)
+
+  let result: ChatResult
+  try {
+    result = await run(true)
   } catch (err) {
     // JSON 模式偶发返回空内容，退化成一次普通对话，至少让用户拿到文字。
     if (err instanceof DeepSeekError && err.code === "empty") {
-      const raw = await chatWithDeepSeek({
-        apiKey,
-        model,
-        baseUrl,
-        thinking,
-        messages: payload,
-        signal,
-      })
-      return { reply: stripCodeFence(raw) }
+      const fallback = await run(false)
+      return { reply: stripCodeFence(fallback.content), truncated: fallback.truncated }
     }
     throw err
   }
+  return parseAssistantReply(result.content, { truncated: result.truncated })
 }
