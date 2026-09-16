@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react"
 import { Star, Save, MessageSquare, Terminal } from "lucide-react"
-import type { AppSettings, Category, Prompt, PromptInput, PromptTarget } from "@/types"
+import type { AppSettings, Category, Prompt, PromptDraft, PromptInput, PromptTarget } from "@/types"
 import { extractVariables } from "@/lib/variables"
 import { effectiveTarget } from "@/lib/targets"
 import { cn } from "@/lib/utils"
@@ -61,6 +61,39 @@ export function PromptEditor({
 
   const variables = useMemo(() => extractVariables(content), [content])
 
+  const tagList = useMemo(
+    () =>
+      tags
+        .split(/[,，]/)
+        .map((t) => t.trim())
+        .filter(Boolean),
+    [tags],
+  )
+
+  const categoryName = useMemo(() => {
+    if (categoryId === NEW_CATEGORY) return newCategory.trim()
+    return categories.find((c) => c.id === categoryId)?.name ?? ""
+  }, [categoryId, categories, newCategory])
+
+  /** 把 AI 生成的草稿写回表单（分类按名称匹配，匹配不到就预填新建分类）。 */
+  const applyDraft = (draft: PromptDraft) => {
+    if (draft.title) setTitle(draft.title)
+    if (draft.content) setContent(draft.content)
+    if (draft.tags && draft.tags.length > 0) setTags(draft.tags.join(", "))
+    if (draft.target) setTarget(draft.target)
+    const wanted = draft.category?.trim()
+    if (wanted) {
+      const match = categories.find((c) => c.name.toLowerCase() === wanted.toLowerCase())
+      if (match) {
+        setCategoryId(match.id)
+        setNewCategory("")
+      } else {
+        setCategoryId(NEW_CATEGORY)
+        setNewCategory(wanted)
+      }
+    }
+  }
+
   const submit = () => {
     let resolvedCategory = categoryId
     if (categoryId === NEW_CATEGORY) {
@@ -71,16 +104,11 @@ export function PromptEditor({
         resolvedCategory = ""
       }
     }
-    const tagList = tags
-      .split(/[,，]/)
-      .map((t) => t.trim())
-      .filter(Boolean)
-      .slice(0, 10)
     onSave({
       title: title.trim() || "未命名 Prompt",
       content,
       category_id: resolvedCategory || undefined,
-      tags: tagList,
+      tags: tagList.slice(0, 10),
       favorite,
       target,
     })
@@ -234,12 +262,19 @@ export function PromptEditor({
           <AiAssistant
             apiKey={settings.deepseekApiKey}
             model={settings.deepseekModel}
+            baseUrl={settings.deepseekBaseUrl}
+            thinking={settings.deepseekThinking}
             title={title}
             content={content}
+            target={target}
+            tags={tagList}
+            categoryName={categoryName}
+            categoryNames={categories.map((c) => c.name)}
             onApplyContent={setContent}
             onAppendContent={(text) =>
               setContent((prev) => (prev.trim() ? `${prev.trimEnd()}\n\n${text}` : text))
             }
+            onApplyDraft={applyDraft}
             onOpenSettings={onOpenSettings}
             onSaveKey={(key) => onUpdateSettings({ deepseekApiKey: key })}
           />

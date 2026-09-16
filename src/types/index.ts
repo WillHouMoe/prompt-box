@@ -46,4 +46,15 @@ export interface ChatMessage {
 export interface AppSettings {
   deepseekApiKey: string
   deepseekModel: string
+  deepseekBaseUrl: string
+  deepseekThinking: boolean
+}
+
+/** A prompt draft proposed by the AI assistant. */
+export interface PromptDraft {
+  title?: string
+  content?: string
+  tags?: string[]
+  category?: string
+  target?: PromptTarget
 }

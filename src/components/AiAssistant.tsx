@@ -1,45 +1,93 @@
 import { useEffect, useRef, useState } from "react"
-import { Bot, Send, Loader2, Trash2, Sparkles, KeyRound, ListPlus, CornerDownLeft } from "lucide-react"
-import type { ChatMessage } from "@/types"
 import {
-  buildSystemPrompt,
-  chatWithDeepSeek,
-  stripCodeFence,
+  Bot,
+  Send,
+  Loader2,
+  Trash2,
+  Sparkles,
+  KeyRound,
+  ListPlus,
+  CornerDownLeft,
+  Wand2,
+} from "lucide-react"
+import type { ChatMessage, PromptDraft, PromptTarget } from "@/types"
+import {
+  askAssistant,
+  DEEPSEEK_MODEL_LABEL,
   DeepSeekError,
+  stripCodeFence,
 } from "@/lib/deepseek"
+import { TARGET_LABEL } from "@/lib/targets"
+import { cn } from "@/lib/utils"
 import { MarkdownView } from "./MarkdownView"
 import { Button } from "./ui/Button"
 import { Input } from "./ui/Input"
 import { Textarea } from "./ui/Textarea"
+import { BetaBadge } from "./ui/BetaBadge"
+
+interface PanelMessage {
+  id: string
+  role: "user" | "assistant"
+  content: string
+  draft?: PromptDraft
+}
 
 interface AiAssistantProps {
   apiKey: string
   model: string
+  baseUrl: string
+  thinking: boolean
   title: string
   content: string
+  target: PromptTarget
+  tags: string[]
+  categoryName?: string
+  categoryNames: string[]
   onApplyContent: (text: string) => void
   onAppendContent: (text: string) => void
+  onApplyDraft: (draft: PromptDraft) => void
   onOpenSettings: () => void
   onSaveKey: (key: string) => void
 }
 
 const SUGGESTIONS = [
   "帮我写一个「英语作文润色」的 Prompt",
-  "优化下面的 Prompt 结构",
-  "把它改写成带 {{变量}} 占位符的通用模板",
+  "把这几个要求整理成一个结构清晰的 Prompt",
+  "改成带 {{变量}} 占位符的通用模板",
 ]
+
+let seq = 0
+const nextId = () => `m${(seq += 1)}`
+
+/** 说明这次「应用到表单」会影响哪些字段。 */
+function draftScope(draft: PromptDraft): string {
+  const parts: string[] = []
+  if (draft.title) parts.push("标题")
+  parts.push("内容")
+  if (draft.tags && draft.tags.length > 0) parts.push(`标签 ${draft.tags.map((t) => `#${t}`).join(" ")}`)
+  if (draft.category) parts.push(`分类 ${draft.category}`)
+  if (draft.target) parts.push(`类型 ${TARGET_LABEL[draft.target]}`)
+  return parts.join(" · ")
+}
 
 export function AiAssistant({
   apiKey,
   model,
+  baseUrl,
+  thinking,
   title,
   content,
+  target,
+  tags,
+  categoryName,
+  categoryNames,
   onApplyContent,
   onAppendContent,
+  onApplyDraft,
   onOpenSettings,
   onSaveKey,
 }: AiAssistantProps) {
-  const [messages, setMessages] = useState<ChatMessage[]>([])
+  const [messages, setMessages] = useState<PanelMessage[]>([])
   const [input, setInput] = useState("")
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
@@ -60,18 +108,31 @@ export function AiAssistant({
       setError("请先填写 DeepSeek API Key")
       return
     }
-    const next: ChatMessage[] = [...messages, { role: "user", content: text }]
-    setMessages(next)
+    const history: ChatMessage[] = [
+      ...messages.map((m) => ({ role: m.role, content: m.content }) as ChatMessage),
+      { role: "user", content: text },
+    ]
+    setMessages([...messages, { id: nextId(), role: "user", content: text }])
     setInput("")
     setError("")
     setLoading(true)
     try {
-      const reply = await chatWithDeepSeek({
+      const { reply, draft } = await askAssistant({
         apiKey,
         model,
-        messages: [{ role: "system", content: buildSystemPrompt({ title, content }) }, ...next],
+        baseUrl,
+        thinking,
+        context: {
+          title,
+          content,
+          target,
+          tags,
+          category: categoryName,
+          categoryNames,
+        },
+        messages: history,
       })
-      setMessages([...next, { role: "assistant", content: reply }])
+      setMessages((prev) => [...prev, { id: nextId(), role: "assistant", content: reply, draft }])
     } catch (err) {
       setError(err instanceof DeepSeekError ? err.message : "请求失败，请稍后重试")
     } finally {
@@ -86,9 +147,9 @@ export function AiAssistant({
           <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-indigo-50">
             <Bot size={16} className="text-indigo-600" />
           </div>
-          <div>
+          <div className="flex items-center gap-1.5">
             <p className="text-sm font-semibold text-slate-800">AI 助手 · DeepSeek</p>
-            <p className="text-[11px] text-slate-400">用它帮你撰写和优化 Prompt</p>
+            <BetaBadge />
           </div>
         </div>
         <p className="text-xs leading-relaxed text-slate-500">
@@ -133,7 +194,7 @@ export function AiAssistant({
           onClick={onOpenSettings}
           className="focus-ring self-start text-xs text-slate-400 hover:text-slate-600"
         >
-          前往设置（模型选择）
+          前往设置（模型 / 深度思考）
         </button>
       </div>
     )
@@ -145,9 +206,15 @@ export function AiAssistant({
         <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-indigo-50">
           <Bot size={16} className="text-indigo-600" />
         </div>
-        <div className="flex-1">
-          <p className="text-sm font-semibold text-slate-800">AI 助手 · DeepSeek</p>
-          <p className="text-[11px] text-slate-400">{model}</p>
+        <div className="min-w-0 flex-1">
+          <p className="flex items-center gap-1.5 text-sm font-semibold text-slate-800">
+            AI 助手 · DeepSeek
+            <BetaBadge />
+          </p>
+          <p className="truncate text-[11px] text-slate-400">
+            {DEEPSEEK_MODEL_LABEL[model] ?? model}
+            {thinking ? " · 深度思考" : ""}
+          </p>
         </div>
         {messages.length > 0 && (
           <button
@@ -181,48 +248,81 @@ export function AiAssistant({
                 </button>
               ))}
             </div>
+            <p className="text-[11px] leading-relaxed text-slate-400">
+              AI 会按 PromptBox 的格式返回：标题、正文（含 {"{{变量}}"}）、标签、分类和 Chat / Agent 类型，
+              你确认后再决定是否写进表单。
+            </p>
           </div>
         )}
 
-        {messages.map((m, i) => (
-          <div key={i} className={m.role === "user" ? "flex justify-end" : "flex justify-start"}>
-            {m.role === "user" ? (
+        {messages.map((m) =>
+          m.role === "user" ? (
+            <div key={m.id} className="flex justify-end">
               <div className="max-w-[85%] rounded-2xl rounded-br-sm bg-indigo-600 px-3 py-2 text-sm text-white">
                 {m.content}
               </div>
-            ) : (
-              <div className="w-full rounded-2xl rounded-bl-sm border border-slate-200 bg-white px-3 py-2">
-                <MarkdownView content={m.content} />
-                <div className="mt-2 flex items-center gap-1.5 border-t border-slate-100 pt-2">
+            </div>
+          ) : (
+            <div
+              key={m.id}
+              className="rounded-2xl rounded-bl-sm border border-slate-200 bg-white px-3 py-2"
+            >
+              <MarkdownView content={m.content} />
+              {m.draft && (
+                <p className="mt-2 flex items-start gap-1 text-[11px] leading-relaxed text-slate-400">
+                  <Wand2 size={12} className="mt-0.5 shrink-0" />
+                  <span>将填入：{draftScope(m.draft)}</span>
+                </p>
+              )}
+              <div className="mt-2 flex flex-wrap items-center gap-1.5 border-t border-slate-100 pt-2">
+                {m.draft ? (
                   <button
-                    onClick={() => onApplyContent(stripCodeFence(m.content))}
+                    onClick={() => onApplyDraft(m.draft as PromptDraft)}
                     className="focus-ring inline-flex items-center gap-1 rounded-md bg-indigo-50 px-2 py-1 text-[11px] font-medium text-indigo-700 hover:bg-indigo-100"
                   >
                     <CornerDownLeft size={12} />
-                    填入内容
+                    应用到表单
                   </button>
-                  <button
-                    onClick={() => onAppendContent(stripCodeFence(m.content))}
-                    className="focus-ring inline-flex items-center gap-1 rounded-md border border-slate-200 px-2 py-1 text-[11px] font-medium text-slate-600 hover:bg-slate-50"
-                  >
-                    <ListPlus size={12} />
-                    追加到内容
-                  </button>
-                </div>
+                ) : null}
+                <button
+                  onClick={() =>
+                    m.draft
+                      ? onApplyContent(m.draft.content ?? "")
+                      : onApplyContent(stripCodeFence(m.content))
+                  }
+                  className={cn(
+                    "focus-ring inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium",
+                    m.draft
+                      ? "border border-slate-200 text-slate-600 hover:bg-slate-50"
+                      : "bg-indigo-50 text-indigo-700 hover:bg-indigo-100",
+                  )}
+                >
+                  <CornerDownLeft size={12} />
+                  只填入内容
+                </button>
+                <button
+                  onClick={() =>
+                    onAppendContent(
+                      m.draft ? (m.draft.content ?? "") : stripCodeFence(m.content),
+                    )
+                  }
+                  className="focus-ring inline-flex items-center gap-1 rounded-md border border-slate-200 px-2 py-1 text-[11px] font-medium text-slate-600 hover:bg-slate-50"
+                >
+                  <ListPlus size={12} />
+                  追加到内容
+                </button>
               </div>
-            )}
-          </div>
-        ))}
+            </div>
+          ),
+        )}
 
         {loading && (
           <div className="flex items-center gap-2 text-xs text-slate-400">
             <Loader2 size={14} className="animate-spin" />
-            正在思考…
+            {thinking ? "正在思考…（深度思考已开启，可能稍慢）" : "正在生成…"}
           </div>
         )}
-        {error && (
-          <p className="rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-600">{error}</p>
-        )}
+        {error && <p className="rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-600">{error}</p>}
       </div>
 
       <div className="border-t border-slate-100 p-3">
@@ -230,7 +330,7 @@ export function AiAssistant({
           <Textarea
             rows={2}
             value={input}
-            placeholder="描述你想写的 Prompt，或让 AI 优化当前内容…（Enter 发送）"
+            placeholder="描述你想写的 Prompt，或让 AI 优化当前内容…（Enter 发送，Shift+Enter 换行）"
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
