@@ -26,11 +26,13 @@ beforeEach(() => {
   Object.defineProperty(window, "isSecureContext", { value: true, configurable: true })
 })
 
-/** 筛选入口现在是搜索框下方的小按钮，展开后才看得到各个区块。 */
-async function openFilters() {
-  await userEvent.click(screen.getByRole("button", { name: /^筛选/ }))
-  return within(await screen.findByTestId("filter-panel"))
+/** 搜索框下方的小按钮只管标签筛选；导航 / 类型 / 分类仍在侧栏。 */
+async function openTagFilter() {
+  await userEvent.click(screen.getByRole("button", { name: "筛选标签" }))
+  return within(await screen.findByTestId("tag-filter-panel"))
 }
+
+const sidebar = () => within(screen.getByRole("complementary"))
 
 describe("App integration", () => {
   it("renders seed prompts", () => {
@@ -40,26 +42,34 @@ describe("App integration", () => {
     expect(screen.getByText("Code Review")).toBeInTheDocument()
   })
 
-  it("filters by tag from the filter menu and can clear it again", async () => {
+  it("filters by tag from the small menu next to the search bar", async () => {
     renderApp()
-    // 「筛选」浮层里的标签区是显式入口
-    const panel = await openFilters()
+    const panel = await openTagFilter()
     await userEvent.click(panel.getByRole("button", { name: /^英语\s*\d+$/ }))
     expect(screen.getByText("英语作文润色")).toBeInTheDocument()
     expect(screen.queryByText("Code Review")).not.toBeInTheDocument()
-    // 再点一次同一个标签 = 取消筛选
-    await userEvent.click(panel.getByRole("button", { name: /^英语\s*\d+$/ }))
+    // 结果行里的胶囊是取消筛选的入口
+    await userEvent.click(screen.getByRole("button", { name: "清除标签筛选：英语" }))
     expect(screen.getByText("Code Review")).toBeInTheDocument()
   })
 
-  it("deletes a category from the filter menu without deleting its prompts", async () => {
+  it("keeps tags out of the sidebar", () => {
     renderApp()
-    const panel = await openFilters()
-    expect(panel.getByText("学习")).toBeInTheDocument()
-    await userEvent.click(panel.getByRole("button", { name: "删除分类：学习" }))
+    const nav = sidebar()
+    expect(nav.queryByText("标签")).not.toBeInTheDocument()
+    // 标签只在搜索框下方的小按钮里
+    expect(nav.queryByText("英语")).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "筛选标签" })).toBeInTheDocument()
+  })
+
+  it("deletes a category from the sidebar without deleting its prompts", async () => {
+    renderApp()
+    const nav = sidebar()
+    expect(nav.getByText("学习")).toBeInTheDocument()
+    await userEvent.click(nav.getByRole("button", { name: "删除分类：学习" }))
     expect(screen.getByText(/确定删除分类「学习」吗/)).toBeInTheDocument()
     await userEvent.click(screen.getByRole("button", { name: "删除分类" }))
-    await waitFor(() => expect(panel.queryByText("学习")).not.toBeInTheDocument())
+    await waitFor(() => expect(nav.queryByText("学习")).not.toBeInTheDocument())
     // Prompt 还在，只是变成「无分类」
     expect(screen.getByText("英语作文润色")).toBeInTheDocument()
   })
@@ -77,13 +87,14 @@ describe("App integration", () => {
     const card = screen.getByText("英语作文润色").closest('[data-testid="prompt-card"]') as HTMLElement
     const star = within(card).getByRole("button", { name: "收藏" })
     await userEvent.click(star)
-    const panel = await openFilters()
-    await userEvent.click(panel.getByRole("button", { name: "常用" }))
+    // 「常用」仍然在侧栏，而且只有它一个高亮
+    const favoriteNav = sidebar().getByRole("button", { name: "常用" })
+    await userEvent.click(favoriteNav)
     expect(await screen.findByText("英语作文润色")).toBeInTheDocument()
     expect(screen.queryByText("Code Review")).not.toBeInTheDocument()
-    // 当前筛选显示成可清除的胶囊，点掉就回到「全部」
-    await userEvent.click(screen.getByRole("button", { name: "清除筛选：常用" }))
-    expect(screen.getByText("我的 Prompt")).toBeInTheDocument()
+    expect(sidebar().getByRole("button", { name: "常用" })).toHaveAttribute("aria-pressed", "true")
+    expect(sidebar().getByRole("button", { name: "全部" })).toHaveAttribute("aria-pressed", "false")
+    await userEvent.click(sidebar().getByRole("button", { name: "全部" }))
     expect(screen.getByText("Code Review")).toBeInTheDocument()
   })
 
@@ -109,8 +120,7 @@ describe("App integration", () => {
     renderApp()
     const card = screen.getByText("Code Review").closest('[data-testid="prompt-card"]') as HTMLElement
     expect(within(card).getByRole("button", { name: "Agent" })).toBeInTheDocument()
-    const panel = await openFilters()
-    await userEvent.click(panel.getByRole("button", { name: "本地 Agent" }))
+    await userEvent.click(sidebar().getByRole("button", { name: "本地 Agent" }))
     expect(await screen.findByText("Code Review")).toBeInTheDocument()
     expect(screen.queryByText("英语作文润色")).not.toBeInTheDocument()
   })

@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from "react"
-import { Boxes, Plus, Command, Settings } from "lucide-react"
+import { Boxes, Plus, Menu, Command, Settings } from "lucide-react"
 import type { Category, LibraryFilter, Prompt, PromptInput, PromptTarget } from "@/types"
 import { usePromptStore } from "@/store/promptStore"
 import { useHotkeys } from "@/hooks/useHotkeys"
@@ -8,6 +8,7 @@ import { useClipboard } from "@/hooks/useClipboard"
 import { useSettings } from "@/hooks/useSettings"
 import { extractVariables } from "@/lib/variables"
 import { filterByTarget, filterPrompts, sortByRecent, sortByUpdated } from "@/lib/search"
+import { Sidebar } from "@/components/Sidebar"
 import { Library } from "@/pages/Library"
 import { PromptEditor } from "@/components/PromptEditor"
 import { UseModal } from "@/components/UseModal"
@@ -26,6 +27,7 @@ export default function App() {
   const [activeFilter, setActiveFilter] = useState<LibraryFilter>({ type: "all" })
   const [activeTag, setActiveTag] = useState<string | null>(null)
   const [query, setQuery] = useState("")
+  const [sidebarOpen, setSidebarOpen] = useState(false)
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [editor, setEditor] = useState<{ open: boolean; prompt: Prompt | null }>({
@@ -85,7 +87,6 @@ export default function App() {
   }, [])
 
   const clearTag = useCallback(() => setActiveTag(null), [])
-  const clearFilter = useCallback(() => setActiveFilter({ type: "all" }), [])
 
   const handleToggleFavorite = useCallback(
     (p: Prompt) => {
@@ -208,6 +209,13 @@ export default function App() {
       {/* Header */}
       <header className="flex h-14 shrink-0 items-center justify-between border-b border-slate-200 bg-white px-4 md:px-6">
         <div className="flex items-center gap-2.5">
+          <button
+            aria-label="打开筛选"
+            onClick={() => setSidebarOpen(true)}
+            className="focus-ring rounded-md p-1.5 text-slate-500 hover:bg-slate-100 md:hidden"
+          >
+            <Menu size={19} />
+          </button>
           <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-slate-900">
             <Boxes size={16} className="text-white" />
           </div>
@@ -243,18 +251,24 @@ export default function App() {
 
       {/* Body */}
       <div className="flex min-h-0 flex-1">
+        <Sidebar
+          categories={store.categories}
+          activeFilter={activeFilter}
+          onSelect={handleSelectFilter}
+          onAddCategory={(name) => store.addCategory(name)}
+          onDeleteCategory={(category) => setCatState({ open: true, category })}
+          mobileOpen={sidebarOpen}
+          onCloseMobile={() => setSidebarOpen(false)}
+        />
+
         <Library
           prompts={filtered}
           categories={store.categories}
           tags={tagStats}
           activeFilter={activeFilter}
           activeTag={activeTag}
-          onSelect={handleSelectFilter}
-          onAddCategory={(name) => store.addCategory(name)}
-          onDeleteCategory={(category) => setCatState({ open: true, category })}
           onToggleTag={handleTagClick}
           onClearTag={clearTag}
-          onClearFilter={clearFilter}
           onUse={openUse}
           onEdit={openEdit}
           onDuplicate={handleDuplicate}

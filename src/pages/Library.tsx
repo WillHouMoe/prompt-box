@@ -23,12 +23,8 @@ interface LibraryProps extends CardHandlers {
   tags: TagStat[]
   activeFilter: LibraryFilter
   activeTag: string | null
-  onSelect: (filter: LibraryFilter) => void
-  onAddCategory: (name: string) => void
-  onDeleteCategory: (category: Category) => void
   onToggleTag: (tag: string) => void
   onClearTag: () => void
-  onClearFilter: () => void
   onTagClick: (tag: string) => void
   onCategoryClick: (id: string) => void
   onTargetClick: (target: PromptTarget) => void
@@ -36,22 +32,6 @@ interface LibraryProps extends CardHandlers {
   query: string
   onQueryChange: (q: string) => void
   onNew: () => void
-}
-
-/** 当前筛选条件的小胶囊；点 × 就回到「全部」。 */
-function FilterChip({ label, onRemove }: { label: string; onRemove: () => void }) {
-  return (
-    <span className="inline-flex max-w-full items-center gap-1 rounded-full border border-indigo-200 bg-indigo-50 py-0.5 pl-2 pr-0.5 text-xs font-medium text-indigo-700">
-      <span className="truncate">{label}</span>
-      <button
-        aria-label={`清除筛选：${label}`}
-        onClick={onRemove}
-        className="focus-ring rounded-full p-0.5 text-indigo-400 hover:bg-indigo-100 hover:text-indigo-700"
-      >
-        <X size={12} />
-      </button>
-    </span>
-  )
 }
 
 export function Library({
@@ -66,12 +46,8 @@ export function Library({
   onToggleFavorite,
   activeFilter,
   activeTag,
-  onSelect,
-  onAddCategory,
-  onDeleteCategory,
   onToggleTag,
   onClearTag,
-  onClearFilter,
   onTagClick,
   onCategoryClick,
   onTargetClick,
@@ -82,13 +58,11 @@ export function Library({
 }: LibraryProps) {
   const catMap = new Map(categories.map((c) => [c.id, c]))
   const isWide = useMediaQuery("(min-width: 640px)")
-  const isWidest = useMediaQuery("(min-width: 1024px)")
   // Staggered ("waterfall") layout: each column flows on its own instead of
   // stretching cards to line up with a neighbour.
-  const columnCount = isWidest ? 3 : isWide ? 2 : 1
   const columns = useMemo(
-    () => splitIntoColumns(prompts, columnCount, estimatePromptHeight),
-    [prompts, columnCount],
+    () => splitIntoColumns(prompts, isWide ? 2 : 1, estimatePromptHeight),
+    [prompts, isWide],
   )
 
   const heading =
@@ -104,22 +78,9 @@ export function Library({
               : "网页 Chat"
             : "我的 Prompt"
 
-  const filterChip =
-    activeFilter.type === "favorites"
-      ? "常用"
-      : activeFilter.type === "recent"
-        ? "最近使用"
-        : activeFilter.type === "category"
-          ? catMap.get(activeFilter.id)?.name ?? "分类"
-          : activeFilter.type === "target"
-            ? activeFilter.target === "agent"
-              ? "本地 Agent"
-              : "网页 Chat"
-            : null
-
   return (
     <main className="min-w-0 flex-1 overflow-y-auto">
-      <div className="mx-auto w-full max-w-3xl px-4 py-5 md:px-8 md:py-7 lg:max-w-5xl xl:max-w-6xl">
+      <div className="mx-auto w-full max-w-3xl px-4 py-5 md:px-8 md:py-7">
         <div className="flex items-center justify-between gap-3">
           <h1 className="text-lg font-semibold text-slate-900">{heading}</h1>
           <Button variant="primary" size="sm" onClick={onNew} className="md:hidden">
@@ -151,25 +112,29 @@ export function Library({
           )}
         </div>
 
-        {/* 搜索框下方：左边是当前筛选条件，右边是唯一的筛选入口 */}
+        {/* 搜索框下面一行：左边是当前筛选和结果数，右边是标签筛选入口 */}
         <div className="mt-3 flex items-center justify-between gap-3">
           <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-            {filterChip && <FilterChip label={filterChip} onRemove={onClearFilter} />}
-            {activeTag && <FilterChip label={`标签「${activeTag}」`} onRemove={onClearTag} />}
+            {/* 当前标签由右边那个胶囊表示，这里只报数量 */}
             <span className="text-xs text-slate-400">
               {query ? `搜索「${query}」 · ` : ""}
               {prompts.length} 个结果
             </span>
+            {activeTag && (
+              <button
+                onClick={onClearTag}
+                aria-label={`清除标签筛选：${activeTag}`}
+                className="focus-ring inline-flex items-center gap-1 rounded-full border border-indigo-200 bg-indigo-50 py-0.5 pl-2 pr-1 text-xs font-medium text-indigo-700 hover:bg-indigo-100"
+              >
+                标签：{activeTag}
+                <X size={12} />
+              </button>
+            )}
           </div>
 
           <FilterMenu
-            categories={categories}
             tags={tags}
-            activeFilter={activeFilter}
             activeTag={activeTag}
-            onSelect={onSelect}
-            onAddCategory={onAddCategory}
-            onDeleteCategory={onDeleteCategory}
             onToggleTag={onToggleTag}
             onClearTag={onClearTag}
           />
