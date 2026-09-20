@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
-import { render, screen, waitFor } from "@testing-library/react"
+import { render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { UseModal } from "./UseModal"
 import { ToastProvider } from "@/hooks/useToast"
@@ -60,7 +60,10 @@ describe("UseModal", () => {
       expect(writeText).toHaveBeenCalledWith("请审查 const a = 1，重点：性能，再审查 const a = 1。")
     })
     expect(onMarkUsed).toHaveBeenCalledWith("p1")
-    expect(screen.getAllByText(/已复制/).length).toBeGreaterThanOrEqual(1)
+    // 按钮文案保持不变（宽度不会跳），反馈只在底部 toast 里
+    expect(screen.getByRole("button", { name: /复制 Prompt/ })).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: /已复制/ })).not.toBeInTheDocument()
+    expect(within(screen.getByRole("status")).getByText("已复制")).toBeInTheDocument()
   })
 
   it("keeps unfilled variables replaced with empty string", async () => {

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react"
-import { Copy, Check, RotateCcw } from "lucide-react"
+import { Copy, RotateCcw } from "lucide-react"
 import type { Prompt } from "@/types"
 import { extractVariables, renderPrompt } from "@/lib/variables"
 import { Modal } from "./ui/Modal"
@@ -18,7 +18,7 @@ interface UseModalProps {
 
 export function UseModal({ open, onClose, prompt, onMarkUsed }: UseModalProps) {
   const { toast } = useToast()
-  const { copied, copy } = useClipboard()
+  const { copy } = useClipboard()
   const [values, setValues] = useState<Record<string, string>>({})
 
   useEffect(() => {
@@ -82,24 +82,14 @@ export function UseModal({ open, onClose, prompt, onMarkUsed }: UseModalProps) {
           </div>
           <div className="mt-4 flex items-center justify-between gap-2">
             <span className="text-xs text-slate-400">{variables.length} 个变量</span>
+            {/* 按钮文案保持不动，复制结果交给底部 toast 反馈 */}
             <Button
               variant="primary"
               onClick={handleCopy}
               disabled={finalPrompt.length === 0}
-              // 固定宽度 + 居中：文案从「复制 Prompt」变成「已复制」时按钮不会变形
-              className="min-w-36 justify-center"
             >
-              {copied ? (
-                <>
-                  <Check size={14} />
-                  已复制
-                </>
-              ) : (
-                <>
-                  <Copy size={14} />
-                  复制 Prompt
-                </>
-              )}
+              <Copy size={14} />
+              复制 Prompt
             </Button>
           </div>
         </div>
