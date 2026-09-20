@@ -19,6 +19,7 @@ interface StoreValue {
   toggleFavorite: (id: string) => Prompt | null
   markUsed: (id: string) => Prompt | null
   addCategory: (name: string) => Category
+  deleteCategory: (id: string) => { removed: boolean; moved: number }
   importData: (prompts: Prompt[], categories: Category[]) => number
 }
 
@@ -105,6 +106,16 @@ export function PromptStoreProvider({ children }: { children: ReactNode }) {
     [persist],
   )
 
+  const deleteCategory = useCallback(
+    (id: string) => {
+      const result = db.deleteCategory(id)
+      const next = db.loadRawState()
+      persist(next)
+      return result
+    },
+    [persist],
+  )
+
   const importData = useCallback(
     (prompts: Prompt[], categories: Category[]): number => {
       db.importBackup({ version: 1, exported_at: "", prompts, categories })
@@ -126,6 +137,7 @@ export function PromptStoreProvider({ children }: { children: ReactNode }) {
       toggleFavorite,
       markUsed,
       addCategory,
+      deleteCategory,
       importData,
     }),
     [
@@ -137,6 +149,7 @@ export function PromptStoreProvider({ children }: { children: ReactNode }) {
       toggleFavorite,
       markUsed,
       addCategory,
+      deleteCategory,
       importData,
     ],
   )

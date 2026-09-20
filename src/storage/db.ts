@@ -147,6 +147,25 @@ export function addCategory(name: string): Category {
   return { id, name }
 }
 
+/**
+ * 删除分类。引用它的 Prompt 不会被删除，只会变成「无分类」。
+ */
+export function deleteCategory(id: string): { removed: boolean; moved: number } {
+  const state = loadRawState()
+  const index = state.categories.findIndex((c) => c.id === id)
+  if (index < 0) return { removed: false, moved: 0 }
+  state.categories.splice(index, 1)
+  let moved = 0
+  for (const prompt of state.prompts) {
+    if (prompt.category_id === id) {
+      delete prompt.category_id
+      moved += 1
+    }
+  }
+  saveState(state)
+  return { removed: true, moved }
+}
+
 export function setFavoriteState(id: string, favorite: boolean): Prompt | null {
   const state = loadRawState()
   const idx = state.prompts.findIndex((p) => p.id === id)

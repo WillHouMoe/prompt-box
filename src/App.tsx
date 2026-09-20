@@ -42,6 +42,10 @@ export default function App() {
     open: false,
     prompt: null,
   })
+  const [catState, setCatState] = useState<{ open: boolean; category: Category | null }>({
+    open: false,
+    category: null,
+  })
 
   const openCreate = useCallback(() => {
     setEditor({ open: true, prompt: null })
@@ -66,9 +70,10 @@ export default function App() {
     setActiveTag(null)
   }, [])
 
+  // 再点一次同一个标签就取消筛选
   const handleTagClick = useCallback((tag: string) => {
+    setActiveTag((current) => (current === tag ? null : tag))
     setActiveFilter({ type: "all" })
-    setActiveTag(tag)
   }, [])
 
   const handleCategoryClick = useCallback((id: string) => {
@@ -138,6 +143,18 @@ export default function App() {
     setDelState({ open: false, prompt: null })
   }, [delState.prompt, store, toast])
 
+  const handleConfirmDeleteCategory = useCallback(() => {
+    const category = catState.category
+    if (category) {
+      const { moved } = store.deleteCategory(category.id)
+      setActiveFilter((current) =>
+        current.type === "category" && current.id === category.id ? { type: "all" } : current,
+      )
+      toast(moved > 0 ? `已删除分类，${moved} 个 Prompt 移到「无分类」` : "已删除分类")
+    }
+    setCatState({ open: false, category: null })
+  }, [catState.category, store, toast])
+
   const handleImport = useCallback(
     (prompts: Prompt[], categories: Category[]) => {
       store.importData(prompts, categories)
@@ -166,6 +183,22 @@ export default function App() {
     }
     return list
   }, [store.prompts, store.categories, query, activeTag, activeFilter])
+
+  // 侧栏「标签」区块：按使用次数排序
+  const tagStats = useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const prompt of store.prompts) {
+      for (const tag of prompt.tags) counts.set(tag, (counts.get(tag) ?? 0) + 1)
+    }
+    return [...counts.entries()]
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, "zh"))
+  }, [store.prompts])
+
+  const promptsInCategory = useCallback(
+    (id: string) => store.prompts.filter((p) => p.category_id === id).length,
+    [store.prompts],
+  )
 
   const activeTarget = activeFilter.type === "target" ? activeFilter.target : null
 
@@ -218,10 +251,13 @@ export default function App() {
       <div className="flex min-h-0 flex-1">
         <Sidebar
           categories={store.categories}
+          tags={tagStats}
           activeFilter={activeFilter}
           activeTag={activeTag}
           onSelect={handleSelectFilter}
           onAddCategory={(name) => store.addCategory(name)}
+          onDeleteCategory={(category) => setCatState({ open: true, category })}
+          onToggleTag={handleTagClick}
           onClearTag={() => setActiveTag(null)}
           mobileOpen={sidebarOpen}
           onCloseMobile={() => setSidebarOpen(false)}
@@ -272,6 +308,20 @@ export default function App() {
         message={`确定删除「${delState.prompt?.title ?? ""}」吗？此操作无法撤销。`}
         onConfirm={handleConfirmDelete}
         onCancel={() => setDelState({ open: false, prompt: null })}
+      />
+      <ConfirmDialog
+        open={catState.open}
+        title="删除分类"
+        message={
+          catState.category
+            ? promptsInCategory(catState.category.id) > 0
+              ? `确定删除分类「${catState.category.name}」吗？其中 ${promptsInCategory(catState.category.id)} 个 Prompt 会移到「无分类」，Prompt 本身不会被删除。`
+              : `确定删除分类「${catState.category.name}」吗？`
+            : ""
+        }
+        confirmLabel="删除分类"
+        onConfirm={handleConfirmDeleteCategory}
+        onCancel={() => setCatState({ open: false, category: null })}
       />
       <CommandPalette
         open={paletteOpen}

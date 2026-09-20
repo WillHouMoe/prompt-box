@@ -15,43 +15,13 @@ function humanize(name: string): string {
     .replace(/^./, (c) => c.toUpperCase())
 }
 
-/** 从名字就能看出内容会比较长的变量，输入框一开始就给大一点。 */
-const LONG_CONTENT_WORDS = [
-  "essay",
-  "article",
-  "code",
-  "prompt",
-  "text",
-  "content",
-  "context",
-  "document",
-  "message",
-  "source",
-  "原文",
-  "文本",
-  "正文",
-  "文章",
-  "作文",
-  "代码",
-  "内容",
-  "材料",
-  "段落",
-  "语料",
-  "题目",
-]
-
-function isLongContentName(name: string): boolean {
-  const lower = name.toLowerCase()
-  return LONG_CONTENT_WORDS.some((word) => lower.includes(word))
-}
-
 /**
  * 变量填写表单。
  *
- * 每个变量都是可以输入多行的输入框（会随着内容自己变高），名字里带
- * 「文章 / essay / code」这类词的只是起始更高一些——所有变量都能换行粘贴，
- * 不存在「这个变量只能填一行」的限制。
+ * 所有变量都用同样的多行输入框：高度统一（5 行），内容多了会自己继续长高，
+ * 所以既不用猜「这个变量能不能填很多行」，也不会出现有的框高有的框矮。
  */
+const VARIABLE_ROWS = 5
 export function VariableForm({ variables, values, onChange, readOnly }: VariableFormProps) {
   const order = useMemo(() => variables, [variables])
 
@@ -77,7 +47,7 @@ export function VariableForm({ variables, values, onChange, readOnly }: Variable
             </label>
             <AutoTextarea
               id={`var-${name}`}
-              minRows={isLongContentName(name) ? 5 : 2}
+              minRows={VARIABLE_ROWS}
               readOnly={readOnly}
               placeholder={`输入 ${label}…（可换行）`}
               value={values[name] ?? ""}

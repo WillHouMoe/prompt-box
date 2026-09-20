@@ -10,6 +10,7 @@ import {
   toggleFavorite,
   markUsed,
   addCategory,
+  deleteCategory,
   importBackup,
 } from "./db"
 import type { PromptInput } from "@/types"
@@ -108,6 +109,35 @@ describe("persistence", () => {
     const reloaded = loadRawState()
     expect(reloaded.prompts).toHaveLength(1)
     expect(reloaded.prompts[0].title).toBe("测试 Prompt")
+  })
+})
+
+describe("deleteCategory", () => {
+  it("removes the category and moves its prompts to 无分类", () => {
+    const p = createPrompt(input)
+    const affected = loadRawState().prompts.filter((item) => item.category_id === "study").length
+    const result = deleteCategory("study")
+
+    expect(result).toEqual({ removed: true, moved: affected })
+    const state = loadRawState()
+    expect(state.categories.some((c) => c.id === "study")).toBe(false)
+    // Prompt 本身不能被删掉，只是失去分类
+    expect(state.prompts.some((item) => item.id === p.id)).toBe(true)
+    expect(getPrompt(p.id)?.category_id).toBeUndefined()
+  })
+
+  it("keeps other categories and prompts untouched", () => {
+    const custom = addCategory("我的分类")
+    const mine = createPrompt({ ...input, category_id: custom.id })
+    deleteCategory(custom.id)
+
+    const state = loadRawState()
+    expect(state.categories.some((c) => c.id === "study")).toBe(true)
+    expect(getPrompt(mine.id)?.category_id).toBeUndefined()
+  })
+
+  it("reports nothing removed for an unknown id", () => {
+    expect(deleteCategory("nope")).toEqual({ removed: false, moved: 0 })
   })
 })
 

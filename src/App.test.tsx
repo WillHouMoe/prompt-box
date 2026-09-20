@@ -34,6 +34,30 @@ describe("App integration", () => {
     expect(screen.getByText("Code Review")).toBeInTheDocument()
   })
 
+  it("filters by tag from the sidebar and can clear it again", async () => {
+    renderApp()
+    // 侧栏「标签」区块是显式入口
+    const sidebarTag = screen.getAllByRole("button", { name: /^英语\s*\d+$/ })[0]
+    await userEvent.click(sidebarTag)
+    expect(screen.getByText("英语作文润色")).toBeInTheDocument()
+    expect(screen.queryByText("Code Review")).not.toBeInTheDocument()
+    // 再点一次同一个标签 = 取消筛选
+    await userEvent.click(screen.getAllByRole("button", { name: /^英语\s*\d+$/ })[0])
+    expect(screen.getByText("Code Review")).toBeInTheDocument()
+  })
+
+  it("deletes a category from the sidebar without deleting its prompts", async () => {
+    renderApp()
+    const sidebar = within(screen.getByRole("complementary"))
+    expect(sidebar.getByText("学习")).toBeInTheDocument()
+    await userEvent.click(sidebar.getByRole("button", { name: "删除分类：学习" }))
+    expect(screen.getByText(/确定删除分类「学习」吗/)).toBeInTheDocument()
+    await userEvent.click(screen.getByRole("button", { name: "删除分类" }))
+    await waitFor(() => expect(sidebar.queryByText("学习")).not.toBeInTheDocument())
+    // Prompt 还在，只是变成「无分类」
+    expect(screen.getByText("英语作文润色")).toBeInTheDocument()
+  })
+
   it("searches prompts in real time", async () => {
     renderApp()
     const search = screen.getByLabelText("搜索 Prompt")

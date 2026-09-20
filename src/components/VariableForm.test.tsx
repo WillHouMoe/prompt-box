@@ -20,12 +20,12 @@ describe("VariableForm", () => {
     }
   })
 
-  it("名字里带 essay / code / 内容 的变量起始更高一些", () => {
+  it("所有变量的输入框高度一致", () => {
     render(
-      <VariableForm variables={["essay", "name"]} values={{}} onChange={() => {}} />,
+      <VariableForm variables={["essay", "name", "focus", "代码"]} values={{}} onChange={() => {}} />,
     )
-    expect(screen.getByLabelText(/Essay/)).toHaveAttribute("rows", "5")
-    expect(screen.getByLabelText(/Name/)).toHaveAttribute("rows", "2")
+    const rows = screen.getAllByRole("textbox").map((box) => box.getAttribute("rows"))
+    expect(rows).toEqual(["5", "5", "5", "5"])
   })
 
   it("换行内容会原样保留", async () => {

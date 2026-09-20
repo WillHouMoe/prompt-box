@@ -86,7 +86,8 @@ export function UseModal({ open, onClose, prompt, onMarkUsed }: UseModalProps) {
               variant="primary"
               onClick={handleCopy}
               disabled={finalPrompt.length === 0}
-              className="min-w-28"
+              // 固定宽度 + 居中：文案从「复制 Prompt」变成「已复制」时按钮不会变形
+              className="min-w-36 justify-center"
             >
               {copied ? (
                 <>
