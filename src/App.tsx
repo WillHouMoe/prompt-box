@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useState } from "react"
-import { Boxes, Plus, Menu, Command, Settings } from "lucide-react"
+import { Plus, Menu, Command, Settings } from "lucide-react"
+import logoBlack from "@/assets/logo-black.svg"
 import type { Category, LibraryFilter, Prompt, PromptInput, PromptTarget } from "@/types"
 import { usePromptStore } from "@/store/promptStore"
 import { useHotkeys } from "@/hooks/useHotkeys"
@@ -216,9 +217,7 @@ export default function App() {
           >
             <Menu size={19} />
           </button>
-          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-slate-900">
-            <Boxes size={16} className="text-white" />
-          </div>
+          <img src={logoBlack} alt="" aria-hidden="true" className="h-6 w-6 shrink-0" />
           <span className="text-[15px] font-semibold tracking-tight text-slate-900">PromptBox</span>
         </div>
 
