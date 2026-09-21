@@ -209,7 +209,7 @@ export default function App() {
     <div className="flex h-screen flex-col">
       {/* Header */}
       <header className="flex h-14 shrink-0 items-center justify-between border-b border-slate-200 bg-white px-4 md:px-6">
-        <div className="flex items-center gap-2.5">
+        <div className="flex min-w-0 items-center gap-2.5">
           <button
             aria-label="打开筛选"
             onClick={() => setSidebarOpen(true)}
@@ -218,16 +218,16 @@ export default function App() {
             <Menu size={19} />
           </button>
           <img src={logoBlack} alt="" aria-hidden="true" className="h-6 w-6 shrink-0" />
-          <span className="text-[15px] font-semibold tracking-tight text-slate-900">PromptBox</span>
+          <span className="truncate text-[15px] font-semibold tracking-tight text-slate-900">PromptBox</span>
         </div>
 
-        <div className="flex items-center gap-1.5">
+        <div className="flex shrink-0 items-center gap-1.5">
           <Button
             variant="ghost"
             size="icon"
             aria-label="设置"
             onClick={() => setSettingsOpen(true)}
-            className="text-slate-500"
+            className="shrink-0 text-slate-500"
           >
             <Settings size={17} />
           </Button>
@@ -241,10 +241,13 @@ export default function App() {
             搜索
             <kbd className="rounded border border-slate-200 bg-slate-50 px-1 text-[10px]">⌘K</kbd>
           </button>
-          <Button variant="primary" size="sm" onClick={openCreate} className="hidden md:inline-flex">
-            <Plus size={15} />
-            新建
-          </Button>
+          {/* 移动端的「新建」在列表标题行里，这里只用于 md 及以上 */}
+          <div className="hidden md:block">
+            <Button variant="primary" size="sm" onClick={openCreate}>
+              <Plus size={15} />
+              新建
+            </Button>
+          </div>
         </div>
       </header>
 

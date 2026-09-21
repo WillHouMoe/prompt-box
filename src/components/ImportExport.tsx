@@ -58,13 +58,26 @@ export function ImportExport({ prompts, categories, onImport }: ImportExportProp
         className="hidden"
         onChange={(e) => handleImport(e.target.files?.[0])}
       />
-      <Button variant="ghost" size="sm" onClick={() => inputRef.current?.click()}>
+      {/* 窄屏只留图标，避免文字被压成两行 */}
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={() => inputRef.current?.click()}
+        aria-label="导入 Prompt"
+        className="shrink-0"
+      >
         <Upload size={14} />
-        导入
+        <span className="hidden sm:inline">导入</span>
       </Button>
-      <Button variant="ghost" size="sm" onClick={handleExport}>
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={handleExport}
+        aria-label="导出 Prompt"
+        className="shrink-0"
+      >
         <Download size={14} />
-        导出
+        <span className="hidden sm:inline">导出</span>
       </Button>
     </>
   )
