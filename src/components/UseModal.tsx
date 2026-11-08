@@ -50,8 +50,8 @@ export function UseModal({ open, onClose, prompt, onMarkUsed }: UseModalProps) {
     <Modal open={open} onClose={onClose} title={prompt.title} size="xl">
       <div className="grid grid-cols-1 gap-0 lg:grid-cols-2">
         {/* Left: fill variables */}
-        <div className="border-slate-200 p-5 lg:border-r">
-          <div className="mb-3 flex items-center justify-between">
+        <div className="flex min-h-0 flex-col border-slate-200 p-5 lg:border-r">
+          <div className="mb-3 flex shrink-0 items-center justify-between">
             <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400">
               填写变量
             </h3>
@@ -65,15 +65,18 @@ export function UseModal({ open, onClose, prompt, onMarkUsed }: UseModalProps) {
               </button>
             )}
           </div>
-          <VariableForm variables={variables} values={values} onChange={setValues} />
+          <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+            <VariableForm variables={variables} values={values} onChange={setValues} fill />
+          </div>
         </div>
 
         {/* Right: preview */}
-        <div className="flex flex-col p-5">
+        <div className="flex min-h-0 flex-col p-5">
           <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-400">
             Preview
           </h3>
-          <div className="max-h-80 flex-1 overflow-y-auto rounded-lg border border-slate-100 bg-slate-50/60 p-4">
+          {/* 与左栏共享工作区高度，长内容只在预览框内滚动。 */}
+          <div className="min-h-80 max-h-[calc(90vh-11rem)] flex-1 overflow-y-auto rounded-lg border border-slate-100 bg-slate-50/60 p-4">
             {finalPrompt ? (
               <MarkdownView content={finalPrompt} />
             ) : (

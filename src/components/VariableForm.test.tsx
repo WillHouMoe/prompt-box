@@ -28,6 +28,23 @@ describe("VariableForm", () => {
     expect(rows).toEqual(["5", "5", "5", "5"])
   })
 
+  it("工作区模式让输入区共同占满可用高度", () => {
+    render(
+      <VariableForm
+        variables={["essay", "focus"]}
+        values={{}}
+        onChange={() => {}}
+        fill
+      />,
+    )
+
+    for (const box of screen.getAllByRole("textbox")) {
+      expect(box).toHaveClass("flex-1")
+      expect(box).toHaveClass("focus-visible:ring-inset")
+      expect(box.parentElement).toHaveClass("flex-1")
+    }
+  })
+
   it("换行内容会原样保留", async () => {
     const onChange = vi.fn()
     render(<VariableForm variables={["focus"]} values={{ focus: "第一行\n第二行" }} onChange={onChange} />)
